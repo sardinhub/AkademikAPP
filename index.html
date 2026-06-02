@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AkademikAPP — Triesakti Institute of Airlines</title>
+  <meta name="description" content="Sistem monitoring jam kerja staf akademik dan kesiapan kelas Triesakti Institute of Airlines (TIA). Pantau aktivitas staf 05:00–22:00 dan checklist persiapan kelas secara real-time.">
+  <meta name="theme-color" content="#06090f">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/main.css">
+</head>
+<body>
+
+  <!-- Main App Container -->
+  <div id="app">
+    <!-- Loading Screen (shown briefly before JS renders login) -->
+    <div class="app-loading">
+      <div class="loading-content">
+        <div class="loading-logo-wrap">
+          <div class="loading-plane">✈️</div>
+        </div>
+        <div class="loading-brand">
+          <h1 class="loading-title">TIA AkademikAPP</h1>
+          <p class="loading-subtitle">Triesakti Institute of Airlines</p>
+        </div>
+        <div class="loading-bar-wrap">
+          <div class="loading-bar">
+            <div class="loading-progress"></div>
+          </div>
+          <p class="loading-status">Memuat sistem...</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal Overlay (managed by JS) -->
+  <div id="modal-overlay" class="modal-overlay hidden"></div>
+
+  <!-- Toast Notifications Container -->
+  <div id="toast-container" class="toast-container" aria-live="polite"></div>
+
+  <!-- Scripts -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="js/db.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
