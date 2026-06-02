@@ -166,15 +166,17 @@ const DB = {
     checklists: []
   },
 
-  /** Initialize cache with local data & seed default staff */
+  /** Initialize cache with local data & seed default staff once */
   init() {
     this.cache.staff = JSON.parse(localStorage.getItem(DB_KEYS.STAFF) || '[]');
     this.cache.logs = JSON.parse(localStorage.getItem(DB_KEYS.LOGS) || '[]');
     this.cache.checklists = JSON.parse(localStorage.getItem(DB_KEYS.CHECKLIST) || '[]');
 
-    if (this.cache.staff.length === 0) {
+    // Seed only once on the first app boot
+    if (!localStorage.getItem('tia_app_seeded')) {
       this.cache.staff = [...DEFAULT_STAFF];
       localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(this.cache.staff));
+      localStorage.setItem('tia_app_seeded', 'true');
     }
   },
 
