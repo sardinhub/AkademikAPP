@@ -197,6 +197,9 @@ async function triggerSyncData() {
 // ============================================================
 //  LOGIN SCREEN
 // ============================================================
+// ============================================================
+//  LOGIN SCREEN
+// ============================================================
 function renderLogin() {
   const activeStaff = DB.getActiveStaff();
 
@@ -233,13 +236,27 @@ function renderLogin() {
           </label>
         </div>
 
-        <div id="staff-select-wrap" class="staff-name-section hidden">
+        <div id="manager-password-wrap" class="hidden" style="margin-top:12px;">
           <div class="form-group" style="margin-bottom:0">
+            <label class="form-label" for="txt-password">Password Manager <span class="req">*</span></label>
+            <input type="password" class="form-control" id="txt-password" placeholder="Masukkan password manager (admin123)">
+          </div>
+        </div>
+
+        <div id="staff-select-wrap" class="staff-name-section hidden">
+          <div class="form-group" style="margin-bottom:12px;">
             <label class="form-label" for="sel-staff">Nama Staf <span class="req">*</span></label>
-            <select class="form-control" id="sel-staff">
+            <select class="form-control" id="sel-staff" onchange="onStaffSelectChange()">
               <option value="">— Pilih nama Anda —</option>
               ${activeStaff.map(s => `<option value="${s.id}">${s.nama} — ${s.jabatan}</option>`).join('')}
             </select>
+          </div>
+          
+          <div id="staff-pin-wrap" class="hidden">
+            <div class="form-group" style="margin-bottom:0">
+              <label class="form-label" for="txt-pin">PIN Staf (4 Digit) <span class="req">*</span></label>
+              <input type="password" class="form-control" id="txt-pin" placeholder="Masukkan 4 digit PIN Anda" inputmode="numeric" maxlength="4" style="letter-spacing: 0.5em; text-align: center; font-weight: bold;">
+            </div>
           </div>
         </div>
 
@@ -255,26 +272,73 @@ function renderLogin() {
 }
 
 function onRoleChange(role) {
-  const wrap = document.getElementById('staff-select-wrap');
-  if (role === 'staff') wrap.classList.remove('hidden');
-  else wrap.classList.add('hidden');
+  const staffWrap = document.getElementById('staff-select-wrap');
+  const mgrWrap = document.getElementById('manager-password-wrap');
+  
+  if (role === 'staff') {
+    staffWrap.classList.remove('hidden');
+    mgrWrap.classList.add('hidden');
+  } else {
+    staffWrap.classList.add('hidden');
+    mgrWrap.classList.remove('hidden');
+    const pinEl = document.getElementById('txt-pin');
+    if (pinEl) pinEl.value = '';
+    const selEl = document.getElementById('sel-staff');
+    if (selEl) selEl.value = '';
+    onStaffSelectChange();
+  }
 }
 
-function doLogin() {
+function onStaffSelectChange() {
+  const selEl = document.getElementById('sel-staff');
+  const pinWrap = document.getElementById('staff-pin-wrap');
+  if (selEl?.value) {
+    pinWrap.classList.remove('hidden');
+  } else {
+    pinWrap.classList.add('hidden');
+    const pinEl = document.getElementById('txt-pin');
+    if (pinEl) pinEl.value = '';
+  }
+}
+
+async function doLogin() {
   const roleEl = document.querySelector('input[name="role"]:checked');
   if (!roleEl) { toast('Pilih peran Anda terlebih dahulu', 'warning'); return; }
 
-  App.role = roleEl.value;
+  const role = roleEl.value;
 
-  if (App.role === 'staff') {
+  if (role === 'staff') {
     const selEl = document.getElementById('sel-staff');
     if (!selEl?.value) { toast('Pilih nama Anda terlebih dahulu', 'warning'); return; }
-    App.user = DB.getStaffById(selEl.value);
-    if (!App.user) { toast('Data staf tidak ditemukan', 'danger'); return; }
-    renderStaffView('tracker');
+    
+    const pinEl = document.getElementById('txt-pin');
+    const pinVal = pinEl?.value?.trim();
+    if (!pinVal) { toast('Masukkan PIN Anda', 'warning'); return; }
+    if (pinVal.length !== 4) { toast('PIN harus 4 digit angka', 'warning'); return; }
+
+    const user = DB.getStaffById(selEl.value);
+    if (!user) { toast('Data staf tidak ditemukan', 'danger'); return; }
+    
+    if (user.pin !== pinVal) {
+      toast('PIN yang Anda masukkan salah!', 'danger');
+      return;
+    }
+
+    App.role = 'staff';
+    App.user = user;
+    await renderStaffView('tracker');
   } else {
+    const passEl = document.getElementById('txt-password');
+    const passVal = passEl?.value;
+    if (!passVal) { toast('Masukkan password manager', 'warning'); return; }
+    if (passVal !== 'admin123') {
+      toast('Password manager salah!', 'danger');
+      return;
+    }
+
+    App.role = 'admin';
     App.user = { id: 'ADMIN', nama: 'Manager Akademik', jabatan: 'Administrator', status: 'Aktif' };
-    renderAdminView('overview');
+    await renderAdminView('overview');
   }
 }
 
@@ -1277,6 +1341,12 @@ function buildStaffMgmt() {
         </div>
       </td>
       <td class="text-sm">${s.jabatan}</td>
+      <td class="text-sm">
+        <span class="staff-pin-container" data-id="${s.id}" data-pin="${s.pin || '1234'}">
+          <span class="pin-stars">••••</span>
+          <button class="btn-icon-sm" onclick="togglePinReveal('${s.id}')" title="Tampilkan PIN" style="background:transparent; border:none; color:var(--gold-light); cursor:pointer; margin-left:6px; font-size:11px;">👁️</button>
+        </span>
+      </td>
       <td>
         <span class="badge ${s.status === 'Aktif' ? 'badge-success' : 'badge-ghost'}">
           <span class="dot ${s.status === 'Aktif' ? 'dot-success' : 'dot-muted'}"></span>
@@ -1313,6 +1383,7 @@ function buildStaffMgmt() {
               <th>ID Staf</th>
               <th>Nama</th>
               <th>Jabatan</th>
+              <th>PIN Login</th>
               <th>Status</th>
               <th>Aksi</th>
             </tr>
@@ -1321,6 +1392,24 @@ function buildStaffMgmt() {
         </table>
       </div>
     </div>`;
+}
+
+function togglePinReveal(id) {
+  const container = document.querySelector(`.staff-pin-container[data-id="${id}"]`);
+  if (!container) return;
+  const stars = container.querySelector('.pin-stars');
+  const btn = container.querySelector('button');
+  const pin = container.dataset.pin;
+  
+  if (stars.textContent === '••••') {
+    stars.textContent = pin;
+    btn.textContent = '👁️‍🗨️';
+    btn.title = 'Sembunyikan PIN';
+  } else {
+    stars.textContent = '••••';
+    btn.textContent = '👁️';
+    btn.title = 'Tampilkan PIN';
+  }
 }
 
 const JABATAN_OPTIONS = [
@@ -1332,7 +1421,7 @@ const JABATAN_OPTIONS = [
   'Teknisi'
 ];
 
-function staffModal({ title, nama = '', jabatan = '', id = null }) {
+function staffModal({ title, nama = '', jabatan = '', pin = '', id = null }) {
   const opts = JABATAN_OPTIONS.map(j =>
     `<option value="${j}" ${jabatan === j ? 'selected' : ''}>${j}</option>`
   ).join('');
@@ -1349,12 +1438,17 @@ function staffModal({ title, nama = '', jabatan = '', id = null }) {
           <input type="text" class="form-control" id="m-nama" value="${nama}"
             placeholder="Contoh: Ahmad Fauzi Ramadhan">
         </div>
-        <div class="form-group" style="margin-bottom:0">
+        <div class="form-group">
           <label class="form-label" for="m-jabatan">Jabatan <span class="req">*</span></label>
           <select class="form-control" id="m-jabatan">
             <option value="">— Pilih Jabatan —</option>
             ${opts}
           </select>
+        </div>
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label" for="m-pin">PIN Akses (4 Digit) <span class="req">*</span></label>
+          <input type="text" class="form-control" id="m-pin" value="${pin || '1234'}"
+            maxlength="4" placeholder="1234" inputmode="numeric">
         </div>
       </div>
       <div class="modal-footer">
@@ -1373,20 +1467,23 @@ function openEditStaff(id) {
   const s = DB.getStaffById(id);
   if (!s) return;
   App.editStaffId = id;
-  staffModal({ title: '✏️ Edit Data Staf', nama: s.nama, jabatan: s.jabatan, id });
+  staffModal({ title: '✏️ Edit Data Staf', nama: s.nama, jabatan: s.jabatan, pin: s.pin, id });
 }
 
 async function saveStaff() {
   const nama    = qs('#m-nama')?.value?.trim();
   const jabatan = qs('#m-jabatan')?.value;
+  const pin     = qs('#m-pin')?.value?.trim();
   if (!nama)    { toast('Nama tidak boleh kosong', 'warning'); return; }
   if (!jabatan) { toast('Pilih jabatan', 'warning');           return; }
+  if (!pin)     { toast('PIN tidak boleh kosong', 'warning');   return; }
+  if (pin.length !== 4 || isNaN(pin)) { toast('PIN harus berupa 4 digit angka', 'warning'); return; }
 
   if (App.editStaffId) {
-    await DB.updateStaff(App.editStaffId, { nama, jabatan });
+    await DB.updateStaff(App.editStaffId, { nama, jabatan, pin });
     toast(`✅ Data ${nama} diperbarui!`, 'success');
   } else {
-    await DB.addStaff({ nama, jabatan });
+    await DB.addStaff({ nama, jabatan, pin });
     toast(`✅ Staf ${nama} ditambahkan!`, 'success');
   }
   closeModal();

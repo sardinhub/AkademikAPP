@@ -9,7 +9,8 @@
      id text PRIMARY KEY,
      nama text NOT NULL,
      jabatan text NOT NULL,
-     status text NOT NULL DEFAULT 'Aktif'
+     status text NOT NULL DEFAULT 'Aktif',
+     pin text NOT NULL DEFAULT '1234'
    );
 
    CREATE TABLE public.tia_log_aktivitas (
@@ -147,12 +148,12 @@ const CHECKLIST_ITEMS = [
 
 /** Default seed staff for fresh install */
 const DEFAULT_STAFF = [
-  { id: 'STF001', nama: 'Ahmad Fauzi',        jabatan: 'Koordinator Akademik', status: 'Aktif' },
-  { id: 'STF002', nama: 'Sari Dewi Rahayu',   jabatan: 'Staf Pengajar',        status: 'Aktif' },
-  { id: 'STF003', nama: 'Budi Santoso',        jabatan: 'Staf Pengajar',        status: 'Aktif' },
-  { id: 'STF004', nama: 'Rina Kusuma Wardani', jabatan: 'Admin Akademik',       status: 'Aktif' },
-  { id: 'STF005', nama: 'Dian Pratama',        jabatan: 'Staf Pengajar',        status: 'Aktif' },
-  { id: 'STF006', nama: 'Fitri Handayani',     jabatan: 'Admin Akademik',       status: 'Aktif' }
+  { id: 'STF001', nama: 'Ahmad Fauzi',        jabatan: 'Koordinator Akademik', status: 'Aktif', pin: '1234' },
+  { id: 'STF002', nama: 'Sari Dewi Rahayu',   jabatan: 'Staf Pengajar',        status: 'Aktif', pin: '1234' },
+  { id: 'STF003', nama: 'Budi Santoso',        jabatan: 'Staf Pengajar',        status: 'Aktif', pin: '1234' },
+  { id: 'STF004', nama: 'Rina Kusuma Wardani', jabatan: 'Admin Akademik',       status: 'Aktif', pin: '1234' },
+  { id: 'STF005', nama: 'Dian Pratama',        jabatan: 'Staf Pengajar',        status: 'Aktif', pin: '1234' },
+  { id: 'STF006', nama: 'Fitri Handayani',     jabatan: 'Admin Akademik',       status: 'Aktif', pin: '1234' }
 ];
 
 // ===========================
@@ -237,12 +238,13 @@ const DB = {
     return this.getAllStaff().find(s => s.id === id) || null;
   },
 
-  async addStaff({ nama, jabatan }) {
+  async addStaff({ nama, jabatan, pin }) {
     const staff = {
       id: 'STF' + Date.now().toString().slice(-8),
       nama: nama.trim(),
       jabatan,
-      status: 'Aktif'
+      status: 'Aktif',
+      pin: (pin || '1234').trim()
     };
     this.cache.staff.push(staff);
     localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(this.cache.staff));
