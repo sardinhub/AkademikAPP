@@ -239,7 +239,7 @@ function renderLogin() {
         <div id="manager-password-wrap" class="hidden" style="margin-top:12px;">
           <div class="form-group" style="margin-bottom:0">
             <label class="form-label" for="txt-password">Password Manager <span class="req">*</span></label>
-            <input type="password" class="form-control" id="txt-password" placeholder="Masukkan password manager (admin123)">
+            <input type="password" class="form-control" id="txt-password" placeholder="Masukkan password manager (8989)">
           </div>
         </div>
 
@@ -331,7 +331,7 @@ async function doLogin() {
     const passEl = document.getElementById('txt-password');
     const passVal = passEl?.value;
     if (!passVal) { toast('Masukkan password manager', 'warning'); return; }
-    if (passVal !== 'admin123') {
+    if (passVal !== '8989') {
       toast('Password manager salah!', 'danger');
       return;
     }
