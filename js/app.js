@@ -525,7 +525,13 @@ function saveCurrentInputToDraft() {
   
   // Check if this category is already saved in DB for selected jam (read-only)
   const jam = qs('#log-jam')?.value;
-  const savedLogs = jam ? DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam) : [];
+  const isShared = catId.startsWith('kesiapan-');
+  const savedLogs = jam 
+    ? (isShared 
+       ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) 
+       : DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
+      )
+    : [];
   const isSaved = savedLogs.some(l => l.kategori === catId);
   if (isSaved) return; // Do not overwrite saved content in draft
 
@@ -541,17 +547,19 @@ function saveCurrentInputToDraft() {
 
 function refreshCatChips() {
   const jam = qs('#log-jam')?.value;
-  const savedLogs = jam ? DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam) : [];
-  const savedCatIds = savedLogs.map(l => l.kategori);
+  const mySavedLogs = jam ? DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam) : [];
+  const allSavedLogs = jam ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) : [];
 
   qsa('.cat-chip').forEach(chip => {
     const catId = chip.dataset.id;
-    const isSaved = savedCatIds.includes(catId);
-    const savedLog = isSaved ? savedLogs.find(l => l.kategori === catId) : null;
+    const isShared = catId.startsWith('kesiapan-');
+    const logsToSearch = isShared ? allSavedLogs : mySavedLogs;
+    const savedLog = logsToSearch.find(l => l.kategori === catId);
+    const isSaved = !!savedLog;
     
     // Check if class is closed
     let isClosed = false;
-    if (isSaved && savedLog && savedLog.kategori.startsWith('kesiapan-')) {
+    if (isSaved && savedLog && isShared) {
       try {
         const data = JSON.parse(savedLog.deskripsi);
         if (data.is_closed) isClosed = true;
@@ -628,7 +636,13 @@ function updateDynamicForm(catId) {
   
   // Check if saved in db
   const jam = qs('#log-jam')?.value;
-  const savedLogs = jam ? DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam) : [];
+  const isShared = catId.startsWith('kesiapan-');
+  const savedLogs = jam 
+    ? (isShared 
+       ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) 
+       : DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
+      )
+    : [];
   const savedLog = savedLogs.find(l => l.kategori === catId);
   const isSaved = !!savedLog;
   
@@ -784,7 +798,12 @@ async function saveLog() {
 
   // Validate duplicate category for this hour in database
   for (const [catId, _] of filledDrafts) {
-    if (DB.isCategoryLogged(App.user.id, DB.today(), jam, catId)) {
+    const isShared = catId.startsWith('kesiapan-');
+    const hasLog = isShared
+      ? DB.getLogs({ tanggal: DB.today() }).some(l => l.jam === jam && l.kategori === catId)
+      : DB.isCategoryLogged(App.user.id, DB.today(), jam, catId);
+
+    if (hasLog) {
       toast(`Pertanyaan ${DB.getCategory(catId).name} untuk jam ${jam} sudah pernah diisi hari ini!`, 'danger');
       return;
     }
@@ -1293,9 +1312,13 @@ function showStaffSlotDetails(staffId, jam) {
       }
 
       const isClosed = structData.is_closed || false;
-      const statusBadge = isClosed 
+      let statusBadge = isClosed 
         ? '<span class="badge badge-success" style="font-size:10px; background:var(--info-bg); color:var(--info); border:1px solid var(--info-border);">🔒 Selesai</span>' 
         : '<span class="badge badge-warning" style="font-size:10px; background:var(--warning-bg); color:var(--warning); border:1px solid var(--warning-border);">⏳ Berjalan</span>';
+
+      if (isClosed && structData.closed_by_nama) {
+        statusBadge += ` <span style="font-size:10px; color:var(--text-muted); margin-left:6px;">(ditutup oleh ${structData.closed_by_nama})</span>`;
+      }
 
       listHtml += `
         <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-xs); border-radius:var(--r-md); padding:14px; margin-bottom:12px;">
@@ -1574,7 +1597,10 @@ function buildLogsView() {
           const total = Object.keys(chk).length || 20;
           const rName = ROOMS.find(r => r.id === meta.class_room)?.name || meta.class_room;
           const isClosed = data.is_closed || false;
-          const statusText = isClosed ? '🔒 Selesai' : '⏳ Berjalan';
+          let statusText = isClosed ? '🔒 Selesai' : '⏳ Berjalan';
+          if (isClosed && data.closed_by_nama) {
+            statusText += ` (oleh ${data.closed_by_nama})`;
+          }
           desc = `📝 <strong>${meta.subject || 'Mata Kuliah'}</strong> (${meta.pic_dosen || 'Dosen'}) · Room: ${rName} · ${meta.total_act || 0}/${meta.total_std || 0} Pax · ${okCount}/${total} OK · <strong style="color:${isClosed ? 'var(--info)' : 'var(--warning)'};">${statusText}</strong>`;
         }
       } catch(e) {}
@@ -1711,7 +1737,13 @@ function buildIssueAlerts() {
 function openClassChecklistModal(catId) {
   // Check if saved in db
   const jam = qs('#log-jam')?.value;
-  const savedLogs = jam ? DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam) : [];
+  const isShared = catId.startsWith('kesiapan-');
+  const savedLogs = jam 
+    ? (isShared 
+       ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) 
+       : DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
+      )
+    : [];
   const savedLog = savedLogs.find(l => l.kategori === catId);
   const isSaved = !!savedLog;
   
@@ -1994,8 +2026,15 @@ async function updateClassChecklist(catId, logId, isCloseAction = false) {
       sta: qs('#c-sta')?.value || '',
       ata: qs('#c-ata')?.value || ''
     },
-    checklist: {}
+    checklist: {},
+    updated_by_id: App.user.id,
+    updated_by_nama: App.user.nama
   };
+
+  if (isCloseAction) {
+    updatedData.closed_by_id = App.user.id;
+    updatedData.closed_by_nama = App.user.nama;
+  }
 
   // Read checklist items
   qsa('.modal-chk-val').forEach(el => {
