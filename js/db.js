@@ -329,6 +329,23 @@ const DB = {
     return entry;
   },
 
+  async updateLog(id, updates) {
+    const list = this.cache.logs;
+    const i = list.findIndex(l => l.id === id);
+    if (i === -1) return null;
+    list[i] = { ...list[i], ...updates };
+    localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(list));
+
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('tia_log_aktivitas').update(updates).eq('id', id);
+      } catch (err) {
+        console.error("Cloud update log failed:", err);
+      }
+    }
+    return list[i];
+  },
+
   isSlotFilled(staffId, tanggal, jam) {
     return this.getLogs({ staffId, tanggal }).some(l => l.jam === jam);
   },

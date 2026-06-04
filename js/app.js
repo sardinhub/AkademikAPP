@@ -547,17 +547,36 @@ function refreshCatChips() {
   qsa('.cat-chip').forEach(chip => {
     const catId = chip.dataset.id;
     const isSaved = savedCatIds.includes(catId);
+    const savedLog = isSaved ? savedLogs.find(l => l.kategori === catId) : null;
+    
+    // Check if class is closed
+    let isClosed = false;
+    if (isSaved && savedLog && savedLog.kategori.startsWith('kesiapan-')) {
+      try {
+        const data = JSON.parse(savedLog.deskripsi);
+        if (data.is_closed) isClosed = true;
+      } catch (e) {}
+    } else if (isSaved) {
+      isClosed = true;
+    }
+
     const isFilled = App.draftLogs && App.draftLogs[catId] && App.draftLogs[catId].trim() !== '';
     const isActive = App.activeCat === catId;
     
     chip.classList.toggle('active', isActive);
     chip.classList.toggle('filled', isFilled && !isSaved);
-    chip.classList.toggle('saved', isSaved);
+    
+    chip.classList.toggle('ongoing', isSaved && !isClosed);
+    chip.classList.toggle('saved', isSaved && isClosed);
     
     const cat = DB.getCategory(catId);
     let extra = '';
     if (isSaved) {
-      extra = ' <span class="chip-saved-badge">🔒 Terkirim</span>';
+      if (isClosed) {
+        extra = ' <span class="chip-saved-badge">🔒 Selesai</span>';
+      } else {
+        extra = ' <span class="chip-ongoing-badge">⏳ Berjalan</span>';
+      }
     } else if (isFilled) {
       extra = ' <span class="chip-check">✓</span>';
     }
@@ -613,14 +632,32 @@ function updateDynamicForm(catId) {
   const savedLog = savedLogs.find(l => l.kategori === catId);
   const isSaved = !!savedLog;
   
-  label.innerHTML = `${cat.name} ${isSaved ? '<span class="badge badge-success" style="margin-left:8px;">Terkirim</span>' : '<span class="req">*</span>'}`;
+  let isClosed = false;
+  if (isSaved && savedLog && catId.startsWith('kesiapan-')) {
+    try {
+      const data = JSON.parse(savedLog.deskripsi);
+      if (data.is_closed) isClosed = true;
+    } catch(e) {}
+  }
+
+  let badgeHtml = '<span class="req">*</span>';
+  if (isSaved) {
+    if (catId.startsWith('kesiapan-')) {
+      badgeHtml = isClosed 
+        ? '<span class="badge badge-success" style="margin-left:8px; background:var(--info-bg); color:var(--info); border:1px solid var(--info-border);">Selesai</span>' 
+        : '<span class="badge badge-warning" style="margin-left:8px; background:var(--warning-bg); color:var(--warning); border:1px solid var(--warning-border);">Berjalan</span>';
+    } else {
+      badgeHtml = '<span class="badge badge-success" style="margin-left:8px;">Terkirim</span>';
+    }
+  }
+  label.innerHTML = `${cat.name} ${badgeHtml}`;
 
   const draftVal = isSaved ? savedLog.deskripsi : (App.draftLogs[catId] || '');
   const dis = isSaved ? 'disabled' : '';
 
   if (catId.startsWith('kesiapan-')) {
     hint.textContent = isSaved 
-      ? 'Checklist kelas sudah tersimpan untuk jam ini.' 
+      ? (isClosed ? 'Checklist kelas sudah selesai & dikunci.' : 'Kelas sedang berjalan. Anda bisa memperbarui jam akhir dosen.') 
       : 'Isi checklist kesiapan ruangan dan pengecekan kedisiplinan siswa.';
       
     let data = null;
@@ -655,7 +692,7 @@ function updateDynamicForm(catId) {
     container.innerHTML = `
       ${summaryHtml}
       <button class="btn btn-gold btn-full" onclick="openClassChecklistModal('${catId}')" style="margin-top:6px;">
-        📋 ${isSaved ? 'Lihat Checklist Terkirim' : '📝 Buka Formulir Checklist Kelas'}
+        📋 ${isSaved ? (isClosed ? 'Lihat Checklist (Selesai)' : '📝 Edit / Close Class') : '📝 Buka Formulir Checklist Kelas'}
       </button>
       <input type="hidden" id="log-desc" value="${draftVal.replace(/"/g, '&quot;')}">`;
   } else if (catId === 'ekskul-sore') {
@@ -1255,11 +1292,16 @@ function showStaffSlotDetails(staffId, jam) {
         issueItemsHtml = `<div style="font-size:12px; color:var(--success); font-style:italic;">🎉 Semua item checklist (20/20) berstatus OK!</div>`;
       }
 
+      const isClosed = structData.is_closed || false;
+      const statusBadge = isClosed 
+        ? '<span class="badge badge-success" style="font-size:10px; background:var(--info-bg); color:var(--info); border:1px solid var(--info-border);">🔒 Selesai</span>' 
+        : '<span class="badge badge-warning" style="font-size:10px; background:var(--warning-bg); color:var(--warning); border:1px solid var(--warning-border);">⏳ Berjalan</span>';
+
       listHtml += `
         <div style="background:rgba(255,255,255,0.02); border:1px solid var(--border-xs); border-radius:var(--r-md); padding:14px; margin-bottom:12px;">
           <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:8px; margin-bottom:10px;">
             <div style="font-weight:700; color:var(--text-primary); font-size:14px; display:flex; align-items:center; gap:6px;">
-              <span>🏫</span> <span>${cat.name}</span>
+              <span>🏫</span> <span>${cat.name}</span> ${statusBadge}
             </div>
             <span class="badge badge-ghost" style="font-size:10px;">${sentTime}</span>
           </div>
@@ -1531,7 +1573,9 @@ function buildLogsView() {
           const okCount = Object.values(chk).filter(v => v.val).length;
           const total = Object.keys(chk).length || 20;
           const rName = ROOMS.find(r => r.id === meta.class_room)?.name || meta.class_room;
-          desc = `📝 <strong>${meta.subject || 'Mata Kuliah'}</strong> (${meta.pic_dosen || 'Dosen'}) · Room: ${rName} · ${meta.total_act || 0}/${meta.total_std || 0} Pax · ${okCount}/${total} OK`;
+          const isClosed = data.is_closed || false;
+          const statusText = isClosed ? '🔒 Selesai' : '⏳ Berjalan';
+          desc = `📝 <strong>${meta.subject || 'Mata Kuliah'}</strong> (${meta.pic_dosen || 'Dosen'}) · Room: ${rName} · ${meta.total_act || 0}/${meta.total_std || 0} Pax · ${okCount}/${total} OK · <strong style="color:${isClosed ? 'var(--info)' : 'var(--warning)'};">${statusText}</strong>`;
         }
       } catch(e) {}
     }
@@ -1673,6 +1717,7 @@ function openClassChecklistModal(catId) {
   
   const rawData = isSaved ? savedLog.deskripsi : (App.draftLogs[catId] || '');
   let data = {
+    is_closed: false,
     metadata: {
       pic_dosen: '', subject: '', class_room: '', chairman: '', program: '',
       total_std: '', unwell: 0, no_show: 0, on_leave: 0, total_act: 0,
@@ -1687,9 +1732,11 @@ function openClassChecklistModal(catId) {
     }
   } catch(e) {}
 
+  const isClosed = isSaved ? (data.is_closed || false) : false;
+  const dis = isClosed ? 'disabled' : '';
+
   const meta = data.metadata || {};
   const chk = data.checklist || {};
-  const dis = isSaved ? 'disabled' : '';
 
   // Options for class room dropdown
   const roomOpts = ROOMS.map(r => 
@@ -1817,9 +1864,19 @@ function openClassChecklistModal(catId) {
         </div>
 
       </div>
-      <div class="modal-footer">
-        <button class="btn btn-ghost" onclick="closeModal()">Tutup</button>
-        ${isSaved ? '' : `<button class="btn btn-gold" onclick="saveClassChecklistDraft('${catId}')">💾 Simpan Draf Checklist</button>`}
+      <div class="modal-footer" style="display:flex; justify-content:space-between; width:100%;">
+        <div>
+          ${isSaved && !isClosed ? `
+            <button class="btn btn-danger" onclick="closeClass('${catId}', '${savedLog.id}')">🔒 Close Class</button>
+          ` : ''}
+        </div>
+        <div style="display:flex; gap:12px;">
+          <button class="btn btn-ghost" onclick="closeModal()">Tutup</button>
+          ${isSaved 
+            ? (!isClosed ? `<button class="btn btn-primary" onclick="updateClassChecklist('${catId}', '${savedLog.id}')">💾 Update Data Kelas</button>` : '') 
+            : `<button class="btn btn-gold" onclick="saveClassChecklistDraft('${catId}')">💾 Simpan Draf Checklist</button>`
+          }
+        </div>
       </div>
     </div>`;
 
@@ -1856,6 +1913,7 @@ function saveClassChecklistDraft(catId) {
   const totalAct = Math.max(0, totalStd - unwell - noShow - onLeave);
 
   const draftData = {
+    is_closed: false,
     metadata: {
       pic_dosen: pic,
       subject,
@@ -1899,6 +1957,82 @@ function saveClassChecklistDraft(catId) {
   // Refresh active view to show summary card
   updateDynamicForm(catId);
   refreshCatChips();
+}
+
+async function updateClassChecklist(catId, logId, isCloseAction = false) {
+  const pic = qs('#c-pic')?.value?.trim();
+  const subject = qs('#c-subject')?.value?.trim();
+  const room = qs('#c-room')?.value;
+  const totalStdVal = qs('#c-total-std')?.value;
+
+  if (!pic) { toast('Dosen (P.I.C) harus diisi', 'warning'); return; }
+  if (!subject) { toast('Subject / Mata Kuliah harus diisi', 'warning'); return; }
+  if (!room) { toast('Pilih Ruang Kelas', 'warning'); return; }
+  if (totalStdVal === '') { toast('Total Siswa harus diisi', 'warning'); return; }
+
+  const totalStd = parseInt(totalStdVal) || 0;
+  const unwell = parseInt(qs('#c-unwell')?.value) || 0;
+  const noShow = parseInt(qs('#c-no-show')?.value) || 0;
+  const onLeave = parseInt(qs('#c-on-leave')?.value) || 0;
+  const totalAct = Math.max(0, totalStd - unwell - noShow - onLeave);
+
+  const updatedData = {
+    is_closed: isCloseAction,
+    metadata: {
+      pic_dosen: pic,
+      subject,
+      class_room: room,
+      chairman: qs('#c-chairman')?.value?.trim() || '',
+      program: qs('#c-program')?.value?.trim() || '',
+      total_std: totalStd,
+      unwell,
+      no_show: noShow,
+      on_leave: onLeave,
+      total_act: totalAct,
+      std: qs('#c-std')?.value || '',
+      atd: qs('#c-atd')?.value || '',
+      sta: qs('#c-sta')?.value || '',
+      ata: qs('#c-ata')?.value || ''
+    },
+    checklist: {}
+  };
+
+  // Read checklist items
+  qsa('.modal-chk-val').forEach(el => {
+    const no = el.dataset.no;
+    const isChecked = el.checked;
+    const remarkEl = qs(`.modal-chk-remark[data-no="${no}"]`);
+    const remark = remarkEl ? remarkEl.value?.trim() : '';
+    
+    updatedData.checklist[no] = {
+      val: isChecked,
+      remark: remark
+    };
+  });
+
+  // Update in DB log
+  const descString = JSON.stringify(updatedData);
+  await DB.updateLog(logId, { deskripsi: descString });
+
+  if (isCloseAction) {
+    toast('🔒 Kelas berhasil ditutup & diselesaikan!', 'success');
+  } else {
+    toast('✅ Data kelas berhasil diperbarui!', 'success');
+  }
+  
+  closeModal();
+  
+  // Refresh view
+  if (App.role === 'admin') {
+    await renderAdminView(App.tab);
+  } else {
+    await renderStaffView(App.tab);
+  }
+}
+
+async function closeClass(catId, logId) {
+  if (!confirm('Apakah Anda yakin ingin menutup kelas ini? Setelah ditutup, data checklist tidak dapat diedit kembali.')) return;
+  await updateClassChecklist(catId, logId, true);
 }
 
 async function boot() {

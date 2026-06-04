@@ -1497,3 +1497,21 @@ textarea.form-control { resize: vertical; min-height: 90px; line-height: 1.6; }
   color: var(--text-muted);
   cursor: not-allowed;
 }
+
+.cat-chip.ongoing {
+  border-color: var(--warning-border) !important;
+  background: rgba(245, 158, 11, 0.08) !important;
+  color: var(--warning) !important;
+  cursor: pointer;
+  opacity: 0.9;
+}
+.chip-ongoing-badge {
+  font-size: 9px;
+  padding: 1px 5px;
+  background: var(--warning-bg);
+  border: 1px solid var(--warning-border);
+  color: var(--warning);
+  border-radius: 4px;
+  margin-left: 6px;
+  font-weight: 700;
+}
