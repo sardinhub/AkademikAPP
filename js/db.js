@@ -196,19 +196,83 @@ const DB = {
       if (staffErr) throw staffErr;
       this.cache.staff = staffData || [];
 
-      // 2. Ambil Data Logs
-      const { data: logsData, error: logsErr } = await supabaseClient
+      // 2. Ambil Data Logs dari Cloud
+      const { data: cloudLogs, error: logsErr } = await supabaseClient
         .from('tia_log_aktivitas')
         .select('*');
       if (logsErr) throw logsErr;
-      this.cache.logs = logsData || [];
+      
+      const cloudLogsMap = new Map(cloudLogs.map(l => [l.id, l]));
+      const localLogs = JSON.parse(localStorage.getItem(DB_KEYS.LOGS) || '[]');
+      
+      // Ambil log lokal yang belum tersinkronisasi
+      const unsyncedLogs = localLogs.filter(l => l._unsynced);
+      
+      for (const log of unsyncedLogs) {
+        try {
+          const existsInCloud = cloudLogsMap.has(log.id);
+          let error;
+          
+          // Hapus flag _unsynced sebelum dikirim ke cloud agar data bersih
+          const cleanLog = { ...log };
+          delete cleanLog._unsynced;
+          
+          if (existsInCloud) {
+            const { error: err } = await supabaseClient
+              .from('tia_log_aktivitas')
+              .update(cleanLog)
+              .eq('id', log.id);
+            error = err;
+          } else {
+            const { error: err } = await supabaseClient
+              .from('tia_log_aktivitas')
+              .insert([cleanLog]);
+            error = err;
+          }
+          
+          if (error) throw error;
+          
+          // Jika sukses, hapus flag _unsynced dari log lokal
+          delete log._unsynced;
+          cloudLogsMap.set(log.id, cleanLog);
+        } catch (err) {
+          console.error(`Gagal menyinkronkan log ${log.id} ke cloud:`, err);
+          // Tetap masukkan log lokal yang unsynced ke map hasil agar tidak terhapus
+          cloudLogsMap.set(log.id, log);
+        }
+      }
+      
+      this.cache.logs = Array.from(cloudLogsMap.values());
 
-      // 3. Ambil Data Checklist
-      const { data: clData, error: clErr } = await supabaseClient
+      // 3. Ambil Data Checklist dari Cloud
+      const { data: cloudChecklists, error: clErr } = await supabaseClient
         .from('tia_checklist_kelas')
         .select('*');
       if (clErr) throw clErr;
-      this.cache.checklists = clData || [];
+      
+      const cloudClMap = new Map(cloudChecklists.map(c => [c.id, c]));
+      const localChecklists = JSON.parse(localStorage.getItem(DB_KEYS.CHECKLIST) || '[]');
+      const unsyncedCl = localChecklists.filter(c => c._unsynced);
+      
+      for (const cl of unsyncedCl) {
+        try {
+          const cleanCl = { ...cl };
+          delete cleanCl._unsynced;
+          
+          const { error } = await supabaseClient
+            .from('tia_checklist_kelas')
+            .upsert([cleanCl]);
+          if (error) throw error;
+          
+          delete cl._unsynced;
+          cloudClMap.set(cl.id, cleanCl);
+        } catch (err) {
+          console.error(`Gagal menyinkronkan checklist ${cl.id} ke cloud:`, err);
+          cloudClMap.set(cl.id, cl);
+        }
+      }
+      
+      this.cache.checklists = Array.from(cloudClMap.values());
 
       // Update backup local storage
       localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(this.cache.staff));
@@ -321,10 +385,18 @@ const DB = {
 
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_log_aktivitas').insert([entry]);
+        const { error } = await supabaseClient.from('tia_log_aktivitas').insert([entry]);
+        if (error) throw error;
+        delete entry._unsynced;
+        localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(this.cache.logs));
       } catch (err) {
         console.error("Cloud add log failed:", err);
+        entry._unsynced = true;
+        localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(this.cache.logs));
       }
+    } else {
+      entry._unsynced = true;
+      localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(this.cache.logs));
     }
     return entry;
   },
@@ -338,12 +410,50 @@ const DB = {
 
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_log_aktivitas').update(updates).eq('id', id);
+        const { error } = await supabaseClient.from('tia_log_aktivitas').update(updates).eq('id', id);
+        if (error) throw error;
+        delete list[i]._unsynced;
+        localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(list));
       } catch (err) {
         console.error("Cloud update log failed:", err);
+        list[i]._unsynced = true;
+        localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(list));
       }
+    } else {
+      list[i]._unsynced = true;
+      localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(list));
     }
     return list[i];
+  },
+
+  async deleteAllLogs() {
+    this.cache.logs = [];
+    localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(this.cache.logs));
+
+    if (supabaseClient) {
+      try {
+        const { error } = await supabaseClient.from('tia_log_aktivitas').delete().neq('id', 'dummy');
+        if (error) throw error;
+      } catch (err) {
+        console.error("Cloud delete all logs failed:", err);
+      }
+    }
+    return true;
+  },
+
+  async deleteStaffLogs(staffId) {
+    this.cache.logs = this.cache.logs.filter(l => l.staff_id !== staffId);
+    localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(this.cache.logs));
+
+    if (supabaseClient) {
+      try {
+        const { error } = await supabaseClient.from('tia_log_aktivitas').delete().eq('staff_id', staffId);
+        if (error) throw error;
+      } catch (err) {
+        console.error("Cloud delete staff logs failed:", err);
+      }
+    }
+    return true;
   },
 
   isSlotFilled(staffId, tanggal, jam) {
@@ -400,10 +510,18 @@ const DB = {
 
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_checklist_kelas').upsert([record]);
+        const { error } = await supabaseClient.from('tia_checklist_kelas').upsert([record]);
+        if (error) throw error;
+        delete record._unsynced;
+        localStorage.setItem(DB_KEYS.CHECKLIST, JSON.stringify(list));
       } catch (err) {
         console.error("Cloud save checklist failed:", err);
+        record._unsynced = true;
+        localStorage.setItem(DB_KEYS.CHECKLIST, JSON.stringify(list));
       }
+    } else {
+      record._unsynced = true;
+      localStorage.setItem(DB_KEYS.CHECKLIST, JSON.stringify(list));
     }
   },
 
@@ -417,10 +535,18 @@ const DB = {
 
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_checklist_kelas').upsert([list[i]]);
+        const { error } = await supabaseClient.from('tia_checklist_kelas').upsert([list[i]]);
+        if (error) throw error;
+        delete list[i]._unsynced;
+        localStorage.setItem(DB_KEYS.CHECKLIST, JSON.stringify(list));
       } catch (err) {
         console.error("Cloud submit checklist failed:", err);
+        list[i]._unsynced = true;
+        localStorage.setItem(DB_KEYS.CHECKLIST, JSON.stringify(list));
       }
+    } else {
+      list[i]._unsynced = true;
+      localStorage.setItem(DB_KEYS.CHECKLIST, JSON.stringify(list));
     }
     return list[i];
   },

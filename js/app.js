@@ -1426,6 +1426,7 @@ function buildStaffMgmt() {
             ${s.status === 'Aktif' ? '🔴 Nonaktifkan' : '🟢 Aktifkan'}
           </button>
           <button class="btn btn-delete btn-sm" onclick="deleteStaff('${s.id}')" title="Hapus permanen">🗑️</button>
+          <button class="btn btn-danger btn-sm" onclick="deleteStaffLogsUI('${s.id}', '${s.nama.replace(/'/g, "\\'")}')" title="Hapus seluruh log staf ini">🗑️ Hapus Log</button>
         </div>
       </td>
     </tr>`).join('');
@@ -1631,7 +1632,10 @@ function buildLogsView() {
     <div class="card">
       <div class="card-header">
         <div class="card-title">📋 Rekap Log Hari Ini</div>
-        <span class="badge badge-gold">${logs.length} entri</span>
+        <div style="display:flex; gap:8px;">
+          <span class="badge badge-gold">${logs.length} entri</span>
+          <button class="btn btn-danger btn-sm" onclick="deleteAllLogsUI()">🗑️ Hapus Semua Log</button>
+        </div>
       </div>
       <div class="table-wrap">
         <table class="tbl">
@@ -2095,3 +2099,20 @@ async function boot() {
 }
 
 boot();
+
+// ============================================================
+//  DELETE LOGS UI (Admin)
+// ============================================================
+async function deleteAllLogsUI() {
+  if (!confirm('⚠️ HAPUS SEMUA LOG AKTIVITAS\n\nAnda yakin ingin menghapus SELURUH log aktivitas dari semua staf?\n\nData yang sudah terhapus tidak dapat dipulihkan. Lanjutkan?')) return;
+  await DB.deleteAllLogs();
+  toast('🗑️ Seluruh log aktivitas berhasil dihapus.', 'warning');
+  await renderAdminView('logs');
+}
+
+async function deleteStaffLogsUI(id, nama) {
+  if (!confirm(`⚠️ HAPUS LOG STAF\n\nAnda yakin ingin menghapus SELURUH log aktivitas dari staf:\n"${nama}"?\n\nData yang sudah terhapus tidak dapat dipulihkan. Lanjutkan?`)) return;
+  await DB.deleteStaffLogs(id);
+  toast(`🗑️ Log aktivitas staf "${nama}" berhasil dihapus.`, 'warning');
+  await renderAdminView('staff');
+}
