@@ -17,7 +17,13 @@ const App = {
   editStaffId: null, // for staff edit modal
   selectedRoom: null, // for checklist
   draftLogs: {},     // dynamic draft categories
-  activeCat: null    // active category ID
+  activeCat: null,   // active category ID
+  logFilter: {       // filter state for Log Aktivitas
+    startDate: '',
+    endDate: '',
+    staffId: '',
+    kategori: ''
+  }
 };
 
 let clockTimer = null;
@@ -1579,9 +1585,19 @@ async function deleteStaff(id) {
 //  ACTIVITY LOGS VIEW (Admin)
 // ============================================================
 function buildLogsView() {
-  const today = DB.today();
-  const logs  = DB.getLogs({ tanggal: today });
   const staff = DB.getAllStaff();
+  
+  // Set default dates if empty
+  if (!App.logFilter.startDate) App.logFilter.startDate = DB.today();
+  if (!App.logFilter.endDate) App.logFilter.endDate = DB.today();
+
+  const filter = App.logFilter;
+  const logs = DB.getLogs({
+    startDate: filter.startDate,
+    endDate: filter.endDate,
+    staffId: filter.staffId,
+    kategori: filter.kategori
+  });
 
   const rows = logs.map(log => {
     const s   = staff.find(st => st.id === log.staff_id);
@@ -1609,6 +1625,7 @@ function buildLogsView() {
     
     return `
       <tr>
+        <td class="text-xs text-muted">${log.tanggal}</td>
         <td>
           <div class="name-cell">
             <div class="av av-sm">${DB.getInitials(s?.nama || log.staff_nama || '?')}</div>
@@ -1623,15 +1640,47 @@ function buildLogsView() {
       </tr>`;
   }).join('');
 
+  const staffOpts = staff.map(s => `<option value="${s.id}" ${filter.staffId === s.id ? 'selected' : ''}>${s.nama}</option>`).join('');
+  const catOpts = ACTIVITY_CATS.map(c => `<option value="${c.id}" ${filter.kategori === c.id ? 'selected' : ''}>${c.name}</option>`).join('');
+
   return `
     <div class="page-hd">
       <h2 class="page-title">📋 Log Aktivitas Staf</h2>
-      <p class="page-sub">Semua log hari ini · ${formatDateLong(today)} · ${logs.length} entri</p>
+      <p class="page-sub">Menampilkan ${logs.length} entri berdasarkan filter</p>
+    </div>
+
+    <!-- Filter Form -->
+    <div class="card" style="margin-bottom:var(--sp-4)">
+      <div class="card-body" style="display:flex; flex-wrap:wrap; gap:12px; align-items:flex-end;">
+        <div class="form-group" style="margin:0; flex:1; min-width:140px;">
+          <label class="form-label" style="font-size:11px;">Tanggal Mulai</label>
+          <input type="date" class="form-control" id="f-start-date" value="${filter.startDate}">
+        </div>
+        <div class="form-group" style="margin:0; flex:1; min-width:140px;">
+          <label class="form-label" style="font-size:11px;">Tanggal Akhir</label>
+          <input type="date" class="form-control" id="f-end-date" value="${filter.endDate}">
+        </div>
+        <div class="form-group" style="margin:0; flex:1; min-width:150px;">
+          <label class="form-label" style="font-size:11px;">Staf</label>
+          <select class="form-control" id="f-staff">
+            <option value="">Semua Staf</option>
+            ${staffOpts}
+          </select>
+        </div>
+        <div class="form-group" style="margin:0; flex:1; min-width:180px;">
+          <label class="form-label" style="font-size:11px;">Kategori</label>
+          <select class="form-control" id="f-cat">
+            <option value="">Semua Kategori</option>
+            ${catOpts}
+          </select>
+        </div>
+        <button class="btn btn-primary" onclick="applyLogFilter()" style="white-space:nowrap;">🔍 Filter Data</button>
+      </div>
     </div>
 
     <div class="card">
       <div class="card-header">
-        <div class="card-title">📋 Rekap Log Hari Ini</div>
+        <div class="card-title">📋 Rekap Data Log</div>
         <div style="display:flex; gap:8px;">
           <span class="badge badge-gold">${logs.length} entri</span>
           <button class="btn btn-danger btn-sm" onclick="deleteAllLogsUI()">🗑️ Hapus Semua Log</button>
@@ -1641,6 +1690,7 @@ function buildLogsView() {
         <table class="tbl">
           <thead>
             <tr>
+              <th>Tanggal</th>
               <th>Nama Staf</th>
               <th>Jam</th>
               <th>Kategori</th>
@@ -1650,11 +1700,19 @@ function buildLogsView() {
           <tbody>
             ${rows.length > 0
               ? rows
-              : '<tr><td colspan="4" style="text-align:center;padding:48px;color:var(--text-muted)">Belum ada log aktivitas hari ini</td></tr>'}
+              : '<tr><td colspan="5" style="text-align:center;padding:48px;color:var(--text-muted)">Belum ada log aktivitas yang sesuai</td></tr>'}
           </tbody>
         </table>
       </div>
     </div>`;
+}
+
+function applyLogFilter() {
+  App.logFilter.startDate = document.getElementById('f-start-date')?.value || DB.today();
+  App.logFilter.endDate   = document.getElementById('f-end-date')?.value || DB.today();
+  App.logFilter.staffId   = document.getElementById('f-staff')?.value || '';
+  App.logFilter.kategori  = document.getElementById('f-cat')?.value || '';
+  renderAdminView('logs');
 }
 
 // ============================================================
@@ -1769,7 +1827,7 @@ function openClassChecklistModal(catId) {
   } catch(e) {}
 
   const isClosed = isSaved ? (data.is_closed || false) : false;
-  const dis = isClosed ? 'disabled' : '';
+  const dis = (isClosed && App.role !== 'admin') ? 'disabled' : '';
 
   const meta = data.metadata || {};
   const chk = data.checklist || {};
@@ -1909,7 +1967,7 @@ function openClassChecklistModal(catId) {
         <div style="display:flex; gap:12px;">
           <button class="btn btn-ghost" onclick="closeModal()">Tutup</button>
           ${isSaved 
-            ? (!isClosed ? `<button class="btn btn-primary" onclick="updateClassChecklist('${catId}', '${savedLog.id}')">💾 Update Data Kelas</button>` : '') 
+            ? (!isClosed || App.role === 'admin' ? `<button class="btn btn-primary" onclick="updateClassChecklist('${catId}', '${savedLog.id}', false, ${isClosed})">💾 Update Data Kelas</button>` : '') 
             : `<button class="btn btn-gold" onclick="saveClassChecklistDraft('${catId}')">💾 Simpan Draf Checklist</button>`
           }
         </div>
@@ -1995,7 +2053,7 @@ function saveClassChecklistDraft(catId) {
   refreshCatChips();
 }
 
-async function updateClassChecklist(catId, logId, isCloseAction = false) {
+async function updateClassChecklist(catId, logId, isCloseAction = false, currentIsClosed = false) {
   const pic = qs('#c-pic')?.value?.trim();
   const subject = qs('#c-subject')?.value?.trim();
   const room = qs('#c-room')?.value;
@@ -2012,8 +2070,17 @@ async function updateClassChecklist(catId, logId, isCloseAction = false) {
   const onLeave = parseInt(qs('#c-on-leave')?.value) || 0;
   const totalAct = Math.max(0, totalStd - unwell - noShow - onLeave);
 
+  // Retrieve existing log to preserve properties like closed_by_id
+  const existingLogs = DB.cache.logs;
+  const logObj = existingLogs.find(l => l.id === logId);
+  let oldData = {};
+  if (logObj && logObj.deskripsi) {
+    try { oldData = JSON.parse(logObj.deskripsi); } catch(e) {}
+  }
+
   const updatedData = {
-    is_closed: isCloseAction,
+    ...oldData, // Preserve previous data like closed_by_nama if it exists
+    is_closed: isCloseAction || currentIsClosed,
     metadata: {
       pic_dosen: pic,
       subject,

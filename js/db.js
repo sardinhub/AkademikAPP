@@ -362,10 +362,13 @@ const DB = {
 
   // ── ACTIVITY LOGS ────────────────────────────────────
 
-  getLogs({ tanggal, staffId } = {}) {
+  getLogs({ tanggal, startDate, endDate, staffId, kategori } = {}) {
     let logs = this.cache.logs;
-    if (tanggal)  logs = logs.filter(l => l.tanggal  === tanggal);
-    if (staffId)  logs = logs.filter(l => l.staff_id === staffId);
+    if (tanggal)   logs = logs.filter(l => l.tanggal  === tanggal);
+    if (startDate) logs = logs.filter(l => l.tanggal >= startDate);
+    if (endDate)   logs = logs.filter(l => l.tanggal <= endDate);
+    if (staffId)   logs = logs.filter(l => l.staff_id === staffId);
+    if (kategori)  logs = logs.filter(l => l.kategori === kategori);
     return logs.sort((a, b) => a.jam.localeCompare(b.jam));
   },
 
