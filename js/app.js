@@ -1319,7 +1319,7 @@ function showStaffSlotDetails(staffId, jam) {
 
       const isClosed = structData.is_closed || false;
       let statusBadge = isClosed 
-        ? '<span class="badge badge-success" style="font-size:10px; background:var(--info-bg); color:var(--info); border:1px solid var(--info-border);">🔒 Selesai</span>' 
+        ? `<span class="badge badge-success" style="font-size:10px; background:var(--info-bg); color:var(--info); border:1px solid var(--info-border); ${App.role === 'admin' ? 'cursor:pointer;' : ''}" ${App.role === 'admin' ? `onclick="closeModal(); openClassChecklistModal('${cat.id}', '${jam}', '${staffId}')" title="Klik untuk mengedit checklist ini"` : ''}>🔒 Selesai</span>` 
         : '<span class="badge badge-warning" style="font-size:10px; background:var(--warning-bg); color:var(--warning); border:1px solid var(--warning-border);">⏳ Berjalan</span>';
 
       if (isClosed && structData.closed_by_nama) {
@@ -1796,14 +1796,16 @@ function buildIssueAlerts() {
     </div>`;
 }
 
-function openClassChecklistModal(catId) {
+function openClassChecklistModal(catId, jamParam = null, staffIdParam = null) {
   // Check if saved in db
-  const jam = qs('#log-jam')?.value;
+  const jam = jamParam || qs('#log-jam')?.value;
+  const staffId = staffIdParam || App.user.id;
+  
   const isShared = catId.startsWith('kesiapan-');
   const savedLogs = jam 
     ? (isShared 
        ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) 
-       : DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
+       : DB.getLogs({ staffId: staffId, tanggal: DB.today() }).filter(l => l.jam === jam)
       )
     : [];
   const savedLog = savedLogs.find(l => l.kategori === catId);
