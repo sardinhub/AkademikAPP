@@ -531,12 +531,8 @@ function saveCurrentInputToDraft() {
   
   // Check if this category is already saved in DB for selected jam (read-only)
   const jam = qs('#log-jam')?.value;
-  const isShared = catId.startsWith('kesiapan-');
   const savedLogs = jam 
-    ? (isShared 
-       ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) 
-       : DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
-      )
+    ? DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
     : [];
   const isSaved = savedLogs.some(l => l.kategori === catId);
   if (isSaved) return; // Do not overwrite saved content in draft
@@ -558,14 +554,13 @@ function refreshCatChips() {
 
   qsa('.cat-chip').forEach(chip => {
     const catId = chip.dataset.id;
-    const isShared = catId.startsWith('kesiapan-');
-    const logsToSearch = isShared ? allSavedLogs : mySavedLogs;
+    const logsToSearch = mySavedLogs;
     const savedLog = logsToSearch.find(l => l.kategori === catId);
     const isSaved = !!savedLog;
     
     // Check if class is closed
     let isClosed = false;
-    if (isSaved && savedLog && isShared) {
+    if (isSaved && savedLog && catId.startsWith('kesiapan-')) {
       try {
         const data = JSON.parse(savedLog.deskripsi);
         if (data.is_closed) isClosed = true;
@@ -642,12 +637,8 @@ function updateDynamicForm(catId) {
   
   // Check if saved in db
   const jam = qs('#log-jam')?.value;
-  const isShared = catId.startsWith('kesiapan-');
   const savedLogs = jam 
-    ? (isShared 
-       ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) 
-       : DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
-      )
+    ? DB.getLogs({ staffId: App.user.id, tanggal: DB.today() }).filter(l => l.jam === jam)
     : [];
   const savedLog = savedLogs.find(l => l.kategori === catId);
   const isSaved = !!savedLog;
@@ -804,10 +795,7 @@ async function saveLog() {
 
   // Validate duplicate category for this hour in database
   for (const [catId, _] of filledDrafts) {
-    const isShared = catId.startsWith('kesiapan-');
-    const hasLog = isShared
-      ? DB.getLogs({ tanggal: DB.today() }).some(l => l.jam === jam && l.kategori === catId)
-      : DB.isCategoryLogged(App.user.id, DB.today(), jam, catId);
+    const hasLog = DB.isCategoryLogged(App.user.id, DB.today(), jam, catId);
 
     if (hasLog) {
       toast(`Pertanyaan ${DB.getCategory(catId).name} untuk jam ${jam} sudah pernah diisi hari ini!`, 'danger');
@@ -1801,12 +1789,8 @@ function openClassChecklistModal(catId, jamParam = null, staffIdParam = null) {
   const jam = jamParam || qs('#log-jam')?.value;
   const staffId = staffIdParam || App.user.id;
   
-  const isShared = catId.startsWith('kesiapan-');
   const savedLogs = jam 
-    ? (isShared 
-       ? DB.getLogs({ tanggal: DB.today() }).filter(l => l.jam === jam) 
-       : DB.getLogs({ staffId: staffId, tanggal: DB.today() }).filter(l => l.jam === jam)
-      )
+    ? DB.getLogs({ staffId: staffId, tanggal: DB.today() }).filter(l => l.jam === jam)
     : [];
   const savedLog = savedLogs.find(l => l.kategori === catId);
   const isSaved = !!savedLog;
