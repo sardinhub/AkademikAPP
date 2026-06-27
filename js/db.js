@@ -35,10 +35,40 @@
      submitted_at text
    );
 
+   CREATE TABLE public.tia_siswa_aktif (
+     nim     text PRIMARY KEY,
+     nama    text NOT NULL,
+     kelas   text NOT NULL,
+     program text NOT NULL,
+     status  text NOT NULL DEFAULT 'Aktif'
+   );
+
+   CREATE TABLE public.tia_mentor_assign (
+     id        text PRIMARY KEY,
+     staff_id  text NOT NULL,
+     siswa_nim text NOT NULL
+   );
+
+   CREATE TABLE public.tia_absen_mentoring (
+     id         text PRIMARY KEY,
+     staff_id   text NOT NULL,
+     staff_nama text NOT NULL,
+     siswa_nim  text NOT NULL,
+     siswa_nama text NOT NULL,
+     tanggal    text NOT NULL,
+     sesi       text NOT NULL,
+     status     text NOT NULL,
+     catatan    text,
+     created_at text NOT NULL
+   );
+
    -- Disable RLS for rapid testing/prototype:
    ALTER TABLE public.tia_master_staff DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_log_aktivitas DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_checklist_kelas DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.tia_siswa_aktif DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.tia_mentor_assign DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.tia_absen_mentoring DISABLE ROW LEVEL SECURITY;
    ============================================================ */
 
 'use strict';
@@ -64,9 +94,37 @@ if (typeof supabase !== 'undefined' && SUPABASE_URL && SUPABASE_ANON_KEY) {
 // STORAGE KEYS
 // ===========================
 const DB_KEYS = {
-  STAFF:     'tia_master_staff',
-  LOGS:      'tia_log_aktivitas',
-  CHECKLIST: 'tia_checklist_kelas'
+  STAFF:           'tia_master_staff',
+  LOGS:            'tia_log_aktivitas',
+  CHECKLIST:       'tia_checklist_kelas',
+  SISWA:           'tia_siswa_aktif',
+  MENTOR_ASSIGN:   'tia_mentor_assign',
+  ABSEN_MENTORING: 'tia_absen_mentoring'
+};
+
+// ===========================
+// SISWA CONSTANTS
+// ===========================
+const KELAS_OPTIONS = [
+  'Garuda A', 'Garuda B', 'Garuda C',
+  'Citilink A', 'Citilink B', 'Citilink C',
+  'Angkatan 2022', 'Angkatan 2023', 'Angkatan 2024', 'Angkatan 2025'
+];
+
+const PROGRAM_OPTIONS = [
+  'Ground Handling',
+  'Cabin Crew',
+  'Airport Service',
+  'Ticketing & Reservation',
+  'Aviation Security',
+  'Air Traffic Control',
+  'Aircraft Maintenance'
+];
+
+/** Sesi absen mentoring dan jendela waktu yang diizinkan */
+const ABSEN_SESI = {
+  pagi:  { label: 'Pagi',  jam: '05:00', windowStart: '05:00', windowEnd: '06:59' },
+  malam: { label: 'Malam', jam: '20:00', windowStart: '20:00', windowEnd: '21:59' }
 };
 
 // ===========================
@@ -164,14 +222,20 @@ const DB = {
   cache: {
     staff: [],
     logs: [],
-    checklists: []
+    checklists: [],
+    siswa: [],
+    mentorAssigns: [],
+    absenMentoring: []
   },
 
   /** Initialize cache with local data & seed default staff once */
   init() {
-    this.cache.staff = JSON.parse(localStorage.getItem(DB_KEYS.STAFF) || '[]');
-    this.cache.logs = JSON.parse(localStorage.getItem(DB_KEYS.LOGS) || '[]');
-    this.cache.checklists = JSON.parse(localStorage.getItem(DB_KEYS.CHECKLIST) || '[]');
+    this.cache.staff          = JSON.parse(localStorage.getItem(DB_KEYS.STAFF) || '[]');
+    this.cache.logs           = JSON.parse(localStorage.getItem(DB_KEYS.LOGS) || '[]');
+    this.cache.checklists     = JSON.parse(localStorage.getItem(DB_KEYS.CHECKLIST) || '[]');
+    this.cache.siswa          = JSON.parse(localStorage.getItem(DB_KEYS.SISWA) || '[]');
+    this.cache.mentorAssigns  = JSON.parse(localStorage.getItem(DB_KEYS.MENTOR_ASSIGN) || '[]');
+    this.cache.absenMentoring = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_MENTORING) || '[]');
 
     // Seed only once on the first app boot
     if (!localStorage.getItem('tia_app_seeded')) {
@@ -274,10 +338,52 @@ const DB = {
       
       this.cache.checklists = Array.from(cloudClMap.values());
 
+      // 4. Ambil Data Siswa dari Cloud
+      const { data: siswaData, error: siswaErr } = await supabaseClient
+        .from('tia_siswa_aktif')
+        .select('*');
+      if (siswaErr) throw siswaErr;
+      this.cache.siswa = siswaData || [];
+
+      // 5. Ambil Data Mentor Assign dari Cloud
+      const { data: assignData, error: assignErr } = await supabaseClient
+        .from('tia_mentor_assign')
+        .select('*');
+      if (assignErr) throw assignErr;
+      this.cache.mentorAssigns = assignData || [];
+
+      // 6. Sync Absen Mentoring (local → cloud)
+      const { data: cloudAbsen, error: absenErr } = await supabaseClient
+        .from('tia_absen_mentoring')
+        .select('*');
+      if (absenErr) throw absenErr;
+
+      const cloudAbsenMap = new Map(cloudAbsen.map(a => [a.id, a]));
+      const localAbsen = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_MENTORING) || '[]');
+      const unsyncedAbsen = localAbsen.filter(a => a._unsynced);
+
+      for (const ab of unsyncedAbsen) {
+        try {
+          const clean = { ...ab };
+          delete clean._unsynced;
+          const { error } = await supabaseClient.from('tia_absen_mentoring').upsert([clean]);
+          if (error) throw error;
+          delete ab._unsynced;
+          cloudAbsenMap.set(ab.id, clean);
+        } catch (err) {
+          console.error(`Gagal sync absen ${ab.id}:`, err);
+          cloudAbsenMap.set(ab.id, ab);
+        }
+      }
+      this.cache.absenMentoring = Array.from(cloudAbsenMap.values());
+
       // Update backup local storage
-      localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(this.cache.staff));
-      localStorage.setItem(DB_KEYS.LOGS, JSON.stringify(this.cache.logs));
-      localStorage.setItem(DB_KEYS.CHECKLIST, JSON.stringify(this.cache.checklists));
+      localStorage.setItem(DB_KEYS.STAFF,           JSON.stringify(this.cache.staff));
+      localStorage.setItem(DB_KEYS.LOGS,            JSON.stringify(this.cache.logs));
+      localStorage.setItem(DB_KEYS.CHECKLIST,       JSON.stringify(this.cache.checklists));
+      localStorage.setItem(DB_KEYS.SISWA,           JSON.stringify(this.cache.siswa));
+      localStorage.setItem(DB_KEYS.MENTOR_ASSIGN,   JSON.stringify(this.cache.mentorAssigns));
+      localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(this.cache.absenMentoring));
 
       console.log("Database Supabase berhasil disinkronisasi!");
       return true; // Successfully synced
@@ -554,6 +660,155 @@ const DB = {
     return list[i];
   },
 
+  // ── SISWA CRUD ───────────────────────────────────────
+
+  getAllSiswa() {
+    return this.cache.siswa;
+  },
+
+  getActiveSiswa() {
+    return this.getAllSiswa().filter(s => s.status === 'Aktif');
+  },
+
+  getSiswaByNim(nim) {
+    return this.getAllSiswa().find(s => s.nim === nim) || null;
+  },
+
+  async addSiswa({ nim, nama, kelas, program }) {
+    if (this.getSiswaByNim(nim)) {
+      throw new Error('NIM sudah terdaftar');
+    }
+    const siswa = { nim: nim.trim(), nama: nama.trim(), kelas, program, status: 'Aktif' };
+    this.cache.siswa.push(siswa);
+    localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(this.cache.siswa));
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('tia_siswa_aktif').insert([siswa]);
+      } catch (err) { console.error('Cloud insert siswa failed:', err); }
+    }
+    return siswa;
+  },
+
+  async updateSiswa(nim, updates) {
+    const list = this.cache.siswa;
+    const i = list.findIndex(s => s.nim === nim);
+    if (i === -1) return null;
+    list[i] = { ...list[i], ...updates };
+    localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(list));
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('tia_siswa_aktif').update(updates).eq('nim', nim);
+      } catch (err) { console.error('Cloud update siswa failed:', err); }
+    }
+    return list[i];
+  },
+
+  async toggleSiswaStatus(nim) {
+    const s = this.getSiswaByNim(nim);
+    if (!s) return null;
+    return await this.updateSiswa(nim, { status: s.status === 'Aktif' ? 'Nonaktif' : 'Aktif' });
+  },
+
+  async deleteSiswa(nim) {
+    this.cache.siswa = this.cache.siswa.filter(s => s.nim !== nim);
+    // Hapus juga assign terkait
+    this.cache.mentorAssigns = this.cache.mentorAssigns.filter(a => a.siswa_nim !== nim);
+    localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(this.cache.siswa));
+    localStorage.setItem(DB_KEYS.MENTOR_ASSIGN, JSON.stringify(this.cache.mentorAssigns));
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('tia_siswa_aktif').delete().eq('nim', nim);
+        await supabaseClient.from('tia_mentor_assign').delete().eq('siswa_nim', nim);
+      } catch (err) { console.error('Cloud delete siswa failed:', err); }
+    }
+    return true;
+  },
+
+  // ── MENTOR ASSIGN ────────────────────────────────────
+
+  /** Kembalikan array NIM siswa yang diassign ke staffId */
+  getMentorAssign(staffId) {
+    return this.cache.mentorAssigns
+      .filter(a => a.staff_id === staffId)
+      .map(a => a.siswa_nim);
+  },
+
+  /** Kembalikan semua assign dalam format {staff_id, siswa_nim}[] */
+  getAllMentorAssigns() {
+    return this.cache.mentorAssigns;
+  },
+
+  /**
+   * Simpan/replace seluruh assignment untuk satu staf.
+   * nimArray: string[] daftar NIM yang diassign.
+   */
+  async setMentorAssign(staffId, nimArray) {
+    // Hapus assign lama untuk staf ini
+    this.cache.mentorAssigns = this.cache.mentorAssigns.filter(a => a.staff_id !== staffId);
+    // Buat assign baru
+    const newAssigns = nimArray.map(nim => ({
+      id:       `MA_${staffId}_${nim}`,
+      staff_id: staffId,
+      siswa_nim: nim
+    }));
+    this.cache.mentorAssigns.push(...newAssigns);
+    localStorage.setItem(DB_KEYS.MENTOR_ASSIGN, JSON.stringify(this.cache.mentorAssigns));
+
+    if (supabaseClient) {
+      try {
+        // Hapus assign lama di cloud
+        await supabaseClient.from('tia_mentor_assign').delete().eq('staff_id', staffId);
+        // Insert baru jika ada
+        if (newAssigns.length > 0) {
+          await supabaseClient.from('tia_mentor_assign').insert(newAssigns);
+        }
+      } catch (err) { console.error('Cloud set mentor assign failed:', err); }
+    }
+    return newAssigns;
+  },
+
+  // ── ABSEN MENTORING ──────────────────────────────────
+
+  getAbsenMentoring({ staffId, tanggal, sesi } = {}) {
+    let list = this.cache.absenMentoring;
+    if (staffId) list = list.filter(a => a.staff_id === staffId);
+    if (tanggal) list = list.filter(a => a.tanggal  === tanggal);
+    if (sesi)    list = list.filter(a => a.sesi     === sesi);
+    return list;
+  },
+
+  /** Simpan atau update satu record absen mentoring */
+  async saveAbsenMentoring({ staff_id, staff_nama, siswa_nim, siswa_nama, tanggal, sesi, status, catatan }) {
+    const id = `ABM_${staff_id}_${siswa_nim}_${tanggal}_${sesi}`;
+    const list = this.cache.absenMentoring;
+    const i = list.findIndex(a => a.id === id);
+    const record = { id, staff_id, staff_nama, siswa_nim, siswa_nama, tanggal, sesi, status, catatan: catatan || '', created_at: new Date().toISOString() };
+
+    if (i !== -1) {
+      list[i] = record;
+    } else {
+      list.push(record);
+    }
+    localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(list));
+
+    if (supabaseClient) {
+      try {
+        const { error } = await supabaseClient.from('tia_absen_mentoring').upsert([record]);
+        if (error) throw error;
+        delete record._unsynced;
+        localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(list));
+      } catch (err) {
+        console.error('Cloud save absen mentoring failed:', err);
+        record._unsynced = true;
+        localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(list));
+      }
+    } else {
+      record._unsynced = true;
+      localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(list));
+    }
+    return record;
+  },
+
   // ── HELPERS ──────────────────────────────────────────
 
   today() {
@@ -562,6 +817,12 @@ const DB = {
     const month = String(now.getMonth() + 1).padStart(2, '0');
     const day = String(now.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
+  },
+
+  /** HH:MM string dari waktu saat ini */
+  nowHHMM() {
+    const now = new Date();
+    return String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
   },
 
   getInitials(name = '') {
