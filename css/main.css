@@ -1755,3 +1755,39 @@ textarea.form-control { resize: vertical; min-height: 90px; line-height: 1.6; }
   .absen-btn-group { gap: 6px; }
   .absen-status-btn { padding: 6px 10px; font-size: 11px; }
 }
+
+/* ============================================================
+   IMPORT EXCEL — PREVIEW MODAL STYLES
+   ============================================================ */
+
+/* ── Import Summary Bar ─────────────────────────────────── */
+.import-summary-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--border-sm);
+  background: var(--bg-secondary);
+}
+.isb-item {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 14px 12px;
+  font-size: 11px;
+  color: var(--text-muted);
+  gap: 4px;
+  border-right: 1px solid var(--border-xs);
+  text-align: center;
+}
+.isb-item:last-child { border-right: none; }
+.isb-item strong {
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1;
+}
+.isb-total  { color: var(--text-secondary); }
+.isb-new    { color: var(--success); }
+.isb-new strong { color: var(--success); }
+.isb-dup    { color: var(--text-muted); }
+.isb-warn   { color: var(--warning); }
+.isb-warn strong { color: var(--warning); }

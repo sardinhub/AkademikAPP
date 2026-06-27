@@ -1522,7 +1522,15 @@ function buildSiswaView() {
 
     <div class="staff-toolbar">
       <button class="btn btn-primary" onclick="openAddSiswa()">➕ Tambah Siswa</button>
+      <button class="btn btn-gold" onclick="openImportExcel()">📥 Import Excel</button>
+      <a class="btn btn-ghost btn-sm" href="data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,${getTemplateBase64()}" download="template_siswa_TIA.xlsx" style="display:inline-flex;align-items:center;gap:6px;">
+        📄 Unduh Template
+      </a>
     </div>
+
+    <!-- Hidden file input for Excel import -->
+    <input type="file" id="excel-file-input" accept=".xlsx,.xls,.csv" style="display:none;"
+      onchange="handleExcelFile(event)">
 
     <div class="card">
       <div class="table-wrap">
@@ -1538,7 +1546,7 @@ function buildSiswaView() {
             </tr>
           </thead>
           <tbody>
-            ${rows || '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted)">Belum ada data siswa. Klik Tambah Siswa untuk memulai.</td></tr>'}
+            ${rows || '<tr><td colspan="6" style="text-align:center;padding:40px;color:var(--text-muted)">Belum ada data siswa. Klik Tambah Siswa atau Import Excel untuk memulai.</td></tr>'}
           </tbody>
         </table>
       </div>
@@ -1644,6 +1652,256 @@ async function deleteSiswaUI(nim, nama) {
   if (!confirm(`⚠️ HAPUS PERMANEN\n\nAnda akan menghapus siswa:\n"${nama}" — NIM: ${nim}\n\nData yang sudah terhapus tidak dapat dipulihkan. Lanjutkan?`)) return;
   await DB.deleteSiswa(nim);
   toast(`🗑️ Siswa "${nama}" berhasil dihapus.`, 'warning');
+  await renderAdminView('siswa');
+}
+
+// ============================================================
+//  IMPORT EXCEL SISWA
+// ============================================================
+
+/**
+ * Buat base64 template Excel minimal (header: NIM, Nama, Kelas, Program)
+ * agar user bisa unduh format yang benar.
+ */
+function getTemplateBase64() {
+  if (typeof XLSX === 'undefined') return '';
+  try {
+    const wb = XLSX.utils.book_new();
+    const wsData = [
+      ['NIM', 'Nama', 'Kelas', 'Program'],
+      ['TIA2024001', 'Contoh Nama Siswa', 'Garuda A', 'Ground Handling'],
+      ['TIA2024002', 'Contoh Nama 2',    'Citilink B', 'Cabin Crew']
+    ];
+    const ws = XLSX.utils.aoa_to_sheet(wsData);
+    // Set column widths
+    ws['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 16 }, { wch: 24 }];
+    XLSX.utils.book_append_sheet(wb, ws, 'Data Siswa');
+    return XLSX.write(wb, { type: 'base64', bookType: 'xlsx' });
+  } catch(e) {
+    return '';
+  }
+}
+
+/** Buka file picker Excel */
+function openImportExcel() {
+  const inp = document.getElementById('excel-file-input');
+  if (!inp) { toast('Komponen import tidak ditemukan, coba refresh halaman.', 'danger'); return; }
+  inp.value = ''; // reset agar event onchange selalu terpicu
+  inp.click();
+}
+
+/** Dipanggil saat user memilih file */
+function handleExcelFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  if (typeof XLSX === 'undefined') {
+    toast('⚠️ Library SheetJS belum dimuat. Periksa koneksi internet Anda.', 'danger');
+    return;
+  }
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data    = new Uint8Array(e.target.result);
+      const workbook = XLSX.read(data, { type: 'array' });
+      const sheet   = workbook.Sheets[workbook.SheetNames[0]];
+      const rows    = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+
+      if (!rows || rows.length === 0) {
+        toast('⚠️ File Excel kosong atau tidak ada data.', 'warning');
+        return;
+      }
+
+      // Normalisasi header (case-insensitive, trim whitespace)
+      const normalize = (str) => String(str || '').trim().toLowerCase();
+      const firstRow = rows[0];
+      const headers  = Object.keys(firstRow).map(normalize);
+
+      // Cari kolom yang cocok
+      const colMap = {};
+      for (const key of Object.keys(firstRow)) {
+        const n = normalize(key);
+        if (n.includes('nim') || n.includes('nomor induk'))  colMap.nim     = key;
+        if (n.includes('nama'))                               colMap.nama    = key;
+        if (n.includes('kelas') || n.includes('class'))      colMap.kelas   = key;
+        if (n.includes('program') || n.includes('prodi') || n.includes('jurusan')) colMap.program = key;
+      }
+
+      const missing = ['nim','nama','kelas','program'].filter(k => !colMap[k]);
+      if (missing.length > 0) {
+        toast(`⚠️ Kolom tidak ditemukan di Excel: ${missing.join(', ')}. Pastikan header sesuai template.`, 'danger');
+        return;
+      }
+
+      // Buat array siswa dari baris Excel
+      const siswaParsed = rows
+        .map((row, idx) => ({
+          _rowNum: idx + 2, // baris di Excel (1=header)
+          nim:     String(row[colMap.nim]     || '').trim(),
+          nama:    String(row[colMap.nama]    || '').trim(),
+          kelas:   String(row[colMap.kelas]   || '').trim(),
+          program: String(row[colMap.program] || '').trim()
+        }))
+        .filter(s => s.nim && s.nama); // buang baris kosong
+
+      if (siswaParsed.length === 0) {
+        toast('⚠️ Tidak ada baris data valid yang ditemukan.', 'warning');
+        return;
+      }
+
+      openImportPreviewModal(siswaParsed, file.name);
+    } catch(err) {
+      console.error('Excel parse error:', err);
+      toast('❌ Gagal membaca file Excel. Pastikan format file benar (.xlsx/.xls).', 'danger');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+/** Tampilkan modal preview sebelum import */
+function openImportPreviewModal(siswaList, fileName) {
+  const existingNims = new Set(DB.getAllSiswa().map(s => s.nim));
+  const validKelas   = new Set(KELAS_OPTIONS);
+  const validProg    = new Set(PROGRAM_OPTIONS);
+
+  let dupCount    = 0;
+  let invalidCount = 0;
+
+  const rowsHtml = siswaList.map((s, i) => {
+    const isDup     = existingNims.has(s.nim);
+    const badKelas  = s.kelas   && !validKelas.has(s.kelas);
+    const badProg   = s.program && !validProg.has(s.program);
+    const hasIssue  = isDup || badKelas || badProg;
+    const isInvalid = !s.nim || !s.nama;
+
+    if (isDup)     dupCount++;
+    if (hasIssue)  invalidCount++;
+
+    let statusBadge = '';
+    const issues = [];
+    if (isDup)     issues.push('NIM duplikat');
+    if (badKelas)  issues.push(`Kelas tidak dikenal: "${s.kelas}"`);
+    if (badProg)   issues.push(`Program tidak dikenal: "${s.program}"`);
+
+    if (issues.length > 0) {
+      statusBadge = `<span class="badge badge-warning" style="font-size:9px;">⚠️ ${issues.join(' · ')}</span>`;
+    } else {
+      statusBadge = '<span class="badge badge-success" style="font-size:9px;">✓ OK</span>';
+    }
+
+    return `<tr style="${isDup ? 'opacity:0.5;' : ''}">
+      <td class="text-xs" style="color:var(--text-muted);">${s._rowNum}</td>
+      <td class="text-xs">
+        <input type="checkbox" class="import-chk" data-idx="${i}" ${isDup ? '' : 'checked'}
+          style="accent-color:var(--primary); margin-right:4px;">
+        ${s.nim}
+      </td>
+      <td class="text-sm">${s.nama}</td>
+      <td><span class="badge badge-info" style="font-size:10px;">${s.kelas || '<em style="color:var(--text-muted)">—</em>'}</span></td>
+      <td style="font-size:11px; color:var(--text-secondary);">${s.program || '<em style="color:var(--text-muted)">—</em>'}</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+
+  const newCount = siswaList.length - dupCount;
+
+  openModal(`
+    <div class="modal-box" style="max-width:900px; width:96%;">
+      <div class="modal-hd">
+        <div style="text-align:left;">
+          <h3 class="modal-title">📥 Preview Import Excel</h3>
+          <span style="font-size:11px; color:var(--text-muted);">${fileName} · ${siswaList.length} baris ditemukan</span>
+        </div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" style="padding:0;">
+        <!-- Summary bar -->
+        <div class="import-summary-bar">
+          <div class="isb-item isb-total">📤 Total <strong>${siswaList.length}</strong></div>
+          <div class="isb-item isb-new">➕ Baru <strong>${newCount}</strong></div>
+          <div class="isb-item isb-dup">🔄 Duplikat <strong>${dupCount}</strong></div>
+          <div class="isb-item isb-warn">⚠️ Perlu Perhatian <strong>${invalidCount}</strong></div>
+        </div>
+        <!-- Info banner -->
+        <div style="padding:12px 20px; font-size:12px; color:var(--text-muted); background:rgba(255,255,255,0.02); border-bottom:1px solid var(--border-xs);">
+          ℹ️ Centang baris yang ingin diimport. Baris <strong>duplikat NIM</strong> otomatis tidak dicentang. Kelas/Program yang tidak sesuai daftar akan diimpor apa adanya.
+        </div>
+        <!-- Preview table -->
+        <div style="max-height:360px; overflow-y:auto;">
+          <table class="tbl" style="font-size:12px;">
+            <thead>
+              <tr>
+                <th style="width:40px;">Baris</th>
+                <th>NIM</th>
+                <th>Nama Siswa</th>
+                <th>Kelas</th>
+                <th>Program</th>
+                <th style="width:160px;">Status</th>
+              </tr>
+            </thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer" style="justify-content:space-between;">
+        <div style="display:flex;gap:8px;align-items:center;">
+          <button class="btn btn-ghost btn-sm" onclick="toggleImportAll(true)">Pilih Semua</button>
+          <button class="btn btn-ghost btn-sm" onclick="toggleImportAll(false)">Batal Semua</button>
+        </div>
+        <div style="display:flex;gap:12px;">
+          <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+          <button class="btn btn-gold" onclick="confirmImportSiswa(${JSON.stringify(siswaList).replace(/"/g, '&quot;')})">
+            📥 Import yang Dicentang
+          </button>
+        </div>
+      </div>
+    </div>`);
+}
+
+/** Toggle semua checkbox import */
+function toggleImportAll(state) {
+  document.querySelectorAll('.import-chk').forEach(cb => cb.checked = state);
+}
+
+/** Eksekusi import batch untuk baris yang dicentang */
+async function confirmImportSiswa(siswaList) {
+  const checkedIdxs = [...document.querySelectorAll('.import-chk:checked')].map(cb => parseInt(cb.dataset.idx));
+  if (checkedIdxs.length === 0) {
+    toast('⚠️ Tidak ada baris yang dicentang untuk diimport.', 'warning');
+    return;
+  }
+
+  const btn = document.querySelector('.modal-footer .btn-gold');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Mengimport...'; }
+
+  let success = 0, skipped = 0, failed = 0;
+  const errors = [];
+
+  for (const idx of checkedIdxs) {
+    const s = siswaList[idx];
+    if (!s) continue;
+    try {
+      await DB.addSiswa({ nim: s.nim, nama: s.nama, kelas: s.kelas, program: s.program });
+      success++;
+    } catch(err) {
+      if (err.message && err.message.includes('sudah terdaftar')) {
+        skipped++;
+      } else {
+        failed++;
+        errors.push(`${s.nim}: ${err.message}`);
+      }
+    }
+  }
+
+  closeModal();
+
+  let msg = `✅ ${success} siswa berhasil diimport!`;
+  let type = 'success';
+  if (skipped > 0) { msg += ` ${skipped} dilewati (duplikat NIM).`; type = 'info'; }
+  if (failed  > 0) { msg += ` ${failed} gagal.`; type = 'warning'; }
+
+  toast(msg, type, 5000);
   await renderAdminView('siswa');
 }
 
