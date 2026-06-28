@@ -1919,3 +1919,173 @@ textarea.form-control { resize: vertical; min-height: 90px; line-height: 1.6; }
   .km-detail-grid { grid-template-columns: 1fr; }
 }
 
+/* ============================================================
+   REKAP ABSEN MENTORING — Filter, Stats & Tables
+   ============================================================ */
+
+/* Filter bar card */
+.rekap-filter-bar { margin-bottom: var(--sp-5); }
+.rekap-filter-inner {
+  display: flex;
+  gap: var(--sp-4);
+  align-items: flex-end;
+  flex-wrap: wrap;
+}
+.rekap-date-info {
+  margin-top: var(--sp-3);
+  font-size: 12px;
+  color: var(--text-muted);
+  border-top: 1px solid var(--border-xs);
+  padding-top: var(--sp-3);
+}
+
+/* 4-column summary stats grid */
+.rekap-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-5);
+}
+@media (max-width: 960px) { .rekap-stats-grid { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 560px) { .rekap-stats-grid { grid-template-columns: 1fr 1fr; } }
+
+/* Individual kelas stat card */
+.rekap-kelas-stat {
+  background: var(--bg-card);
+  border: 1px solid var(--border-sm);
+  border-top: 3px solid var(--km-accent, var(--primary));
+  border-radius: var(--r-lg);
+  padding: var(--sp-4);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  justify-content: space-between;
+}
+.rks-left {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+.rks-icon  { font-size: 2rem; flex-shrink: 0; }
+.rks-nama  { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+.rks-mentor {
+  font-size: 11px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.rks-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+/* Conic gradient ring chart */
+.rks-ring {
+  width: 56px; height: 56px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--ring-color, #10b981) calc(var(--pct, 0) * 1%),
+    rgba(255,255,255,0.08) 0
+  );
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+.rks-ring::before {
+  content: '';
+  position: absolute;
+  inset: 8px;
+  background: var(--bg-secondary);
+  border-radius: 50%;
+}
+.rks-pct {
+  position: relative;
+  font-size: 12px;
+  font-weight: 800;
+  color: var(--text-primary);
+  z-index: 1;
+}
+
+.rks-detail {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* Tables section */
+.rekap-tables-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.rekap-kelas-card { overflow: hidden; }
+
+/* Rekap table */
+.ra-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.ra-th {
+  background: rgba(255,255,255,0.03);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 10px 14px;
+  text-align: left;
+  border-bottom: 1px solid var(--border-xs);
+  white-space: nowrap;
+}
+.ra-row { border-bottom: 1px solid var(--border-xs); }
+.ra-row:last-child { border-bottom: none; }
+.ra-row:hover { background: var(--bg-card-hover); }
+.ra-td {
+  padding: 10px 14px;
+  vertical-align: middle;
+  color: var(--text-primary);
+}
+.ra-nama {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.ra-av {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--gold), var(--gold-dark));
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 700; color: #000;
+  flex-shrink: 0;
+}
+.ra-siswa-nama { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+.ra-siswa-meta { font-size: 11px; color: var(--text-muted); }
+.ra-kls  { font-size: 12px; color: var(--text-secondary); }
+.ra-prg  { font-size: 11px; color: var(--text-muted); white-space: nowrap; }
+
+/* Status cells */
+.ra-status { font-size: 12px; font-weight: 600; white-space: nowrap; }
+.ra-hadir { color: #10b981; }
+.ra-sakit { color: #f59e0b; }
+.ra-izin  { color: #60a5fa; }
+.ra-alfa  { color: #ef4444; }
+.ra-none  { color: var(--text-muted); font-style: italic; }
+.ra-catatan {
+  font-size: 10px;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 2px;
+  font-style: italic;
+}

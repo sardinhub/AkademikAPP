@@ -26,6 +26,10 @@ const App = {
     endDate: '',
     staffId: '',
     kategori: ''
+  },
+  rekapFilter: {     // filter state untuk Rekap Absen Mentoring
+    tanggal: '',     // akan diisi dengan DB.today() saat pertama buka
+    sesi: ''         // '' = Semua, 'pagi', 'malam'
   }
 };
 
@@ -1077,6 +1081,7 @@ async function renderAdminView(tab = 'overview') {
     { id: 'staff',           emoji: '👥', label: 'Master Staf'       },
     { id: 'siswa',           emoji: '🎓', label: 'Siswa Aktif'       },
     { id: 'kelas-mentoring', emoji: '🏨', label: 'Kelas Mentoring'   },
+    { id: 'rekap-absen',     emoji: '📅', label: 'Rekap Absen'       },
     { id: 'logs',            emoji: '📋', label: 'Log Aktivitas'     },
     { id: 'issues',          emoji: '⚠️', label: 'Laporan Kendala'  }
   ];
@@ -1087,12 +1092,13 @@ async function renderAdminView(tab = 'overview') {
     </button>`).join('');
 
   const content = {
-    overview:        buildOverview,
-    staff:           buildStaffMgmt,
-    siswa:           buildSiswaView,
+    overview:          buildOverview,
+    staff:             buildStaffMgmt,
+    siswa:             buildSiswaView,
     'kelas-mentoring': buildKelasMentoringView,
-    logs:            buildLogsView,
-    issues:          buildIssueAlerts
+    'rekap-absen':     buildRekapAbsenView,
+    logs:              buildLogsView,
+    issues:            buildIssueAlerts
   }[tab]?.() || '';
 
   $app().innerHTML = `
@@ -2107,6 +2113,215 @@ async function saveSiswaKelasAssign(kelasId) {
 function toggleKelasChk(state) {
   document.querySelectorAll('.siswa-kelas-chk').forEach(cb => cb.checked = state);
 }
+
+// ============================================================
+//  FEATURE: REKAP ABSEN MENTORING (Admin)
+// ============================================================
+
+function buildRekapAbsenView() {
+  // Default tanggal ke hari ini jika belum pernah difilter
+  if (!App.rekapFilter.tanggal) {
+    App.rekapFilter.tanggal = DB.today();
+  }
+  const { tanggal, sesi } = App.rekapFilter;
+  const activeStaff = DB.getActiveStaff();
+
+  // Ambil semua absen sesuai filter
+  const allAbsen = DB.getAbsenMentoring({ tanggal, sesi: sesi || undefined });
+
+  // ── Summary bar 4 kelas ───────────────────────────────────
+  const kelasStatHtml = KELAS_MENTORING.map(km => {
+    const mentor      = activeStaff.find(s => DB.getStaffKelasId(s.id) === km.id);
+    const siswaInKelas = DB.getSiswaByKelasId(km.id);
+    const absenInKelas = allAbsen.filter(a => siswaInKelas.includes(a.siswa_nim));
+
+    const hadir = absenInKelas.filter(a => a.status === 'Hadir').length;
+    const total = absenInKelas.length;
+    const pct   = total > 0 ? Math.round((hadir / total) * 100) : 0;
+
+    // Tentukan warna ring progress
+    const ringColor = pct >= 80 ? '#10b981' : pct >= 50 ? '#f59e0b' : '#ef4444';
+
+    return `
+      <div class="rekap-kelas-stat" style="--km-accent:${km.accent};">
+        <div class="rks-left">
+          <span class="rks-icon">${km.icon}</span>
+          <div>
+            <div class="rks-nama">${km.nama}</div>
+            <div class="rks-mentor">${mentor ? mentor.nama : '<em>Belum ada mentor</em>'}</div>
+          </div>
+        </div>
+        <div class="rks-right">
+          <div class="rks-ring" style="--pct:${pct}; --ring-color:${ringColor};">
+            <span class="rks-pct">${pct}%</span>
+          </div>
+          <div class="rks-detail">
+            <span style="color:#10b981;">🟢 ${absenInKelas.filter(a=>a.status==='Hadir').length}</span>
+            <span style="color:#f59e0b;">🟡 ${absenInKelas.filter(a=>a.status==='Sakit').length}</span>
+            <span style="color:#60a5fa;">🔵 ${absenInKelas.filter(a=>a.status==='Izin').length}</span>
+            <span style="color:#ef4444;">🔴 ${absenInKelas.filter(a=>a.status==='Alfa').length}</span>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+
+  // ── Tabel per Kelas ───────────────────────────────────────
+  const kelasTablesHtml = KELAS_MENTORING.map(km => {
+    const mentor      = activeStaff.find(s => DB.getStaffKelasId(s.id) === km.id);
+    const siswaInKelas = DB.getSiswaByKelasId(km.id)
+      .map(nim => DB.getSiswaByNim(nim))
+      .filter(Boolean)
+      .filter(s => s.status === 'Aktif');
+
+    if (siswaInKelas.length === 0) return '';
+
+    const sesiList = sesi ? [sesi] : ['pagi', 'malam'];
+
+    const rows = siswaInKelas.map(s => {
+      const statusCells = sesiList.map(ss => {
+        const rec = allAbsen.find(a => a.siswa_nim === s.nim && a.sesi === ss);
+        if (!rec) {
+          return `<td class="ra-td ra-status ra-none">—</td>`;
+        }
+        const colors = { Hadir: 'hadir', Sakit: 'sakit', Izin: 'izin', Alfa: 'alfa' };
+        const icons  = { Hadir: '🟢', Sakit: '🟡', Izin: '🔵', Alfa: '🔴' };
+        return `<td class="ra-td ra-status ra-${colors[rec.status] || 'none'}">
+          ${icons[rec.status] || '—'} ${rec.status}
+          ${rec.catatan ? `<div class="ra-catatan">${rec.catatan}</div>` : ''}
+        </td>`;
+      }).join('');
+
+      return `<tr class="ra-row">
+        <td class="ra-td ra-nama">
+          <div class="ra-av">${DB.getInitials(s.nama)}</div>
+          <div>
+            <div class="ra-siswa-nama">${s.nama}</div>
+            <div class="ra-siswa-meta">${s.nim}</div>
+          </div>
+        </td>
+        <td class="ra-td ra-kls">${s.kelas}</td>
+        <td class="ra-td ra-prg">${s.program}</td>
+        ${statusCells}
+      </tr>`;
+    }).join('');
+
+    const hadir = allAbsen.filter(a =>
+      siswaInKelas.map(s => s.nim).includes(a.siswa_nim) && a.status === 'Hadir'
+    ).length;
+    const totalRec = allAbsen.filter(a =>
+      siswaInKelas.map(s => s.nim).includes(a.siswa_nim)
+    ).length;
+
+    const sesiHeaders = sesiList.map(ss =>
+      `<th class="ra-th">${ss === 'pagi' ? '🌅 Pagi' : '🌙 Malam'}</th>`
+    ).join('');
+
+    return `
+      <div class="card rekap-kelas-card" style="border-top: 3px solid ${km.accent};">
+        <div class="card-header" style="border-bottom:1px solid var(--border-xs);">
+          <div style="display:flex; align-items:center; gap:10px;">
+            <span style="font-size:22px;">${km.icon}</span>
+            <div>
+              <div class="card-title">${km.nama}</div>
+              <div style="font-size:11px; color:var(--text-muted);">
+                Mentor: <strong style="color:var(--text-secondary);">${mentor ? mentor.nama : '—'}</strong>
+                · ${siswaInKelas.length} siswa terdaftar
+              </div>
+            </div>
+          </div>
+          <div style="display:flex; gap:6px; flex-wrap:wrap;">
+            <span class="badge" style="background:${km.accent}18; color:${km.accent}; border:1px solid ${km.accent}44;">
+              ${hadir} / ${totalRec} hadir
+            </span>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="ra-table">
+            <thead>
+              <tr>
+                <th class="ra-th" style="min-width:200px;">Nama Siswa</th>
+                <th class="ra-th">Kelas</th>
+                <th class="ra-th">Program</th>
+                ${sesiHeaders}
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </div>
+        ${siswaInKelas.length === 0 ? `
+          <div class="empty-state" style="padding:24px;">
+            <div class="empty-big">👥</div>
+            <p>Belum ada siswa di kelas ini.</p>
+          </div>` : ''}
+      </div>`;
+  }).filter(Boolean).join('');
+
+  const noDataMsg = !kelasTablesHtml ? `
+    <div class="empty-state">
+      <div class="empty-big">📭</div>
+      <p>Belum ada kelas yang memiliki siswa terdaftar.</p>
+    </div>` : '';
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">📅 Rekap Absen Mentoring</h2>
+      <p class="page-sub">Monitor kehadiran siswa per mentor · Data berdasarkan filter tanggal</p>
+    </div>
+
+    <!-- Filter Bar -->
+    <div class="card rekap-filter-bar">
+      <div class="rekap-filter-inner">
+        <div class="form-group" style="margin:0; flex:1; min-width:160px;">
+          <label class="form-label" style="font-size:10px;">📅 Tanggal</label>
+          <input type="date" class="form-control" id="rf-tanggal"
+            value="${tanggal}"
+            max="${DB.today()}"
+            onchange="applyRekapFilter()">
+        </div>
+        <div class="form-group" style="margin:0; min-width:140px;">
+          <label class="form-label" style="font-size:10px;">🕐 Sesi</label>
+          <select class="form-control" id="rf-sesi" onchange="applyRekapFilter()">
+            <option value=""  ${sesi === ''      ? 'selected' : ''}>Semua Sesi</option>
+            <option value="pagi"  ${sesi === 'pagi'  ? 'selected' : ''}>🌅 Pagi</option>
+            <option value="malam" ${sesi === 'malam' ? 'selected' : ''}>🌙 Malam</option>
+          </select>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="resetRekapFilter()" style="align-self:flex-end;">
+          ↺ Reset
+        </button>
+      </div>
+      <div class="rekap-date-info">
+        Menampilkan data untuk: <strong>${formatDateLong(tanggal)}</strong>
+        ${sesi ? ` · Sesi <strong>${sesi === 'pagi' ? '🌅 Pagi' : '🌙 Malam'}</strong>` : ' · Semua Sesi'}
+        · Total absen tercatat: <strong>${allAbsen.length}</strong>
+      </div>
+    </div>
+
+    <!-- 4 Kelas Summary Stats -->
+    <div class="rekap-stats-grid">
+      ${kelasStatHtml}
+    </div>
+
+    <!-- Detail Tables per Kelas -->
+    <div class="rekap-tables-wrap">
+      ${kelasTablesHtml || noDataMsg}
+    </div>`;
+}
+
+/** Terapkan filter tanggal/sesi dan re-render */
+function applyRekapFilter() {
+  App.rekapFilter.tanggal = document.getElementById('rf-tanggal')?.value || DB.today();
+  App.rekapFilter.sesi    = document.getElementById('rf-sesi')?.value || '';
+  renderAdminView('rekap-absen');
+}
+
+/** Reset filter ke hari ini */
+function resetRekapFilter() {
+  App.rekapFilter.tanggal = DB.today();
+  App.rekapFilter.sesi    = '';
+  renderAdminView('rekap-absen');
+}
+
 
 function togglePinReveal(id) {
   const container = document.querySelector(`.staff-pin-container[data-id="${id}"]`);
