@@ -99,7 +99,9 @@ const DB_KEYS = {
   CHECKLIST:       'tia_checklist_kelas',
   SISWA:           'tia_siswa_aktif',
   MENTOR_ASSIGN:   'tia_mentor_assign',
-  ABSEN_MENTORING: 'tia_absen_mentoring'
+  ABSEN_MENTORING: 'tia_absen_mentoring',
+  STAFF_KELAS:     'tia_staff_kelas_assign',
+  SISWA_KELAS:     'tia_siswa_kelas_assign'
 };
 
 // ===========================
@@ -119,6 +121,14 @@ const PROGRAM_OPTIONS = [
   'Aviation Security',
   'Air Traffic Control',
   'Aircraft Maintenance'
+];
+
+/** 4 Kelas Mentoring — pengelompokan siswa ke dalam mentor tertentu */
+const KELAS_MENTORING = [
+  { id: 'zurich',    nama: 'Kelas Zurich',    icon: '🇨🇭', accent: '#e63946' },
+  { id: 'frankfurt', nama: 'Kelas Frankfurt', icon: '🇩🇪', accent: '#457b9d' },
+  { id: 'narita',    nama: 'Kelas Narita',    icon: '🇯🇵', accent: '#e9c46a' },
+  { id: 'vancouver', nama: 'Kelas Vancouver', icon: '🇨🇦', accent: '#2a9d8f' },
 ];
 
 /** Sesi absen mentoring dan jendela waktu yang diizinkan */
@@ -225,7 +235,9 @@ const DB = {
     checklists: [],
     siswa: [],
     mentorAssigns: [],
-    absenMentoring: []
+    absenMentoring: [],
+    staffKelas: [],
+    siswaKelas: []
   },
 
   /** Initialize cache with local data & seed default staff once */
@@ -236,6 +248,8 @@ const DB = {
     this.cache.siswa          = JSON.parse(localStorage.getItem(DB_KEYS.SISWA) || '[]');
     this.cache.mentorAssigns  = JSON.parse(localStorage.getItem(DB_KEYS.MENTOR_ASSIGN) || '[]');
     this.cache.absenMentoring = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_MENTORING) || '[]');
+    this.cache.staffKelas     = JSON.parse(localStorage.getItem(DB_KEYS.STAFF_KELAS) || '[]');
+    this.cache.siswaKelas     = JSON.parse(localStorage.getItem(DB_KEYS.SISWA_KELAS) || '[]');
 
     // Seed only once on the first app boot
     if (!localStorage.getItem('tia_app_seeded')) {
@@ -377,6 +391,20 @@ const DB = {
       }
       this.cache.absenMentoring = Array.from(cloudAbsenMap.values());
 
+      // 7. Ambil Data Staff Kelas Assign dari Cloud
+      const { data: staffKelasData, error: skErr } = await supabaseClient
+        .from('tia_staff_kelas_assign')
+        .select('*');
+      if (skErr) throw skErr;
+      this.cache.staffKelas = staffKelasData || [];
+
+      // 8. Ambil Data Siswa Kelas Assign dari Cloud
+      const { data: siswaKelasData, error: szkErr } = await supabaseClient
+        .from('tia_siswa_kelas_assign')
+        .select('*');
+      if (szkErr) throw szkErr;
+      this.cache.siswaKelas = siswaKelasData || [];
+
       // Update backup local storage
       localStorage.setItem(DB_KEYS.STAFF,           JSON.stringify(this.cache.staff));
       localStorage.setItem(DB_KEYS.LOGS,            JSON.stringify(this.cache.logs));
@@ -384,6 +412,8 @@ const DB = {
       localStorage.setItem(DB_KEYS.SISWA,           JSON.stringify(this.cache.siswa));
       localStorage.setItem(DB_KEYS.MENTOR_ASSIGN,   JSON.stringify(this.cache.mentorAssigns));
       localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(this.cache.absenMentoring));
+      localStorage.setItem(DB_KEYS.STAFF_KELAS,     JSON.stringify(this.cache.staffKelas));
+      localStorage.setItem(DB_KEYS.SISWA_KELAS,     JSON.stringify(this.cache.siswaKelas));
 
       console.log("Database Supabase berhasil disinkronisasi!");
       return true; // Successfully synced
@@ -807,6 +837,83 @@ const DB = {
       localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(list));
     }
     return record;
+  },
+
+  // ── KELAS MENTORING ──────────────────────────────────────
+
+  /** Kembalikan kelas_id yang diassign untuk staffId, atau null */
+  getStaffKelasId(staffId) {
+    return this.cache.staffKelas.find(a => a.staff_id === staffId)?.kelas_id || null;
+  },
+
+  /**
+   * Set atau update assignment staff ke kelas.
+   * Jika kelasId = null/kosong, hapus assignment staff tsb.
+   */
+  async setStaffKelas(staffId, kelasId) {
+    this.cache.staffKelas = this.cache.staffKelas.filter(a => a.staff_id !== staffId);
+    if (kelasId) {
+      const record = { id: `SKA_${staffId}`, staff_id: staffId, kelas_id: kelasId };
+      this.cache.staffKelas.push(record);
+    }
+    localStorage.setItem(DB_KEYS.STAFF_KELAS, JSON.stringify(this.cache.staffKelas));
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('tia_staff_kelas_assign').delete().eq('staff_id', staffId);
+        if (kelasId) {
+          await supabaseClient.from('tia_staff_kelas_assign')
+            .insert([{ id: `SKA_${staffId}`, staff_id: staffId, kelas_id: kelasId }]);
+        }
+      } catch (err) { console.error('Cloud set staff kelas failed:', err); }
+    }
+  },
+
+  /** Kembalikan array NIM siswa yang ada di kelas tertentu */
+  getSiswaByKelasId(kelasId) {
+    return this.cache.siswaKelas
+      .filter(a => a.kelas_id === kelasId)
+      .map(a => a.siswa_nim);
+  },
+
+  /** Kembalikan kelas_id untuk seorang siswa (NIM), atau null */
+  getSiswaKelasId(nim) {
+    return this.cache.siswaKelas.find(a => a.siswa_nim === nim)?.kelas_id || null;
+  },
+
+  /**
+   * Replace seluruh daftar siswa di kelas tertentu.
+   * nimArray: string[] daftar NIM yang akan dimasukkan ke kelas.
+   */
+  async setSiswaKelas(kelasId, nimArray) {
+    // Hapus semua siswa lama di kelas ini
+    this.cache.siswaKelas = this.cache.siswaKelas.filter(a => a.kelas_id !== kelasId);
+    // Buat assign baru
+    const newAssigns = nimArray.map(nim => ({
+      id:        `SZA_${kelasId}_${nim}`,
+      siswa_nim: nim,
+      kelas_id:  kelasId
+    }));
+    this.cache.siswaKelas.push(...newAssigns);
+    localStorage.setItem(DB_KEYS.SISWA_KELAS, JSON.stringify(this.cache.siswaKelas));
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('tia_siswa_kelas_assign').delete().eq('kelas_id', kelasId);
+        if (newAssigns.length > 0) {
+          await supabaseClient.from('tia_siswa_kelas_assign').insert(newAssigns);
+        }
+      } catch (err) { console.error('Cloud set siswa kelas failed:', err); }
+    }
+    return newAssigns;
+  },
+
+  /**
+   * Kembalikan array NIM siswa untuk staf berdasarkan kelas yang diassign.
+   * Digunakan oleh tampilan Absen Pagi/Malam di staf view.
+   */
+  getMentorStudents(staffId) {
+    const kelasId = this.getStaffKelasId(staffId);
+    if (!kelasId) return [];
+    return this.getSiswaByKelasId(kelasId);
   },
 
   // ── HELPERS ──────────────────────────────────────────
