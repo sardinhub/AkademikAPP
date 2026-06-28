@@ -16,8 +16,9 @@ const App = {
   tab:  null,        // current tab id
   editStaffId: null, // for staff edit modal
   editSiswaNim: null,// for siswa edit modal
-  mentoringStaffId: null, // for mentoring filter selection
+  mentoringStaffId: null, // for mentoring filter selection (legacy)
   selectedRoom: null, // for checklist
+  selectedKelas: null, // for kelas mentoring admin panel
   draftLogs: {},     // dynamic draft categories
   activeCat: null,   // active category ID
   logFilter: {       // filter state for Log Aktivitas
@@ -358,9 +359,11 @@ async function renderStaffView(tab = 'tracker') {
   await DB.syncFromCloud();
   const todayLogs = DB.getStaffLogsToday(App.user.id);
 
-  // Cek apakah staf ini punya siswa yang diassign
-  const assignedNims = DB.getMentorAssign(App.user.id);
-  const hasAssignment = assignedNims.length > 0;
+  // Cek kelas mentoring dan siswa staf ini
+  const assignedNims = DB.getMentorStudents(App.user.id);
+  const kelasId      = DB.getStaffKelasId(App.user.id);
+  const kelasInfo    = KELAS_MENTORING.find(k => k.id === kelasId);
+  const hasAssignment = kelasId !== null && assignedNims.length > 0;
 
   // Cek jendela waktu absen
   const pagiOpen  = isAbsenWindowOpen('pagi');
@@ -371,9 +374,11 @@ async function renderStaffView(tab = 'tracker') {
       badge: `<span class="log-bubble">${todayLogs.length}</span>` },
     { id: 'checklist', emoji: '✅', label: 'Checklist Kelas', badge: '' },
     ...(hasAssignment ? [
-      { id: 'absen-pagi',  emoji: '🌅', label: 'Absen Pagi',
+      { id: 'absen-pagi',  emoji: '🌅',
+        label: `Absen Pagi${kelasInfo ? ' ' + kelasInfo.icon : ''}`,
         badge: pagiOpen  ? '<span class="badge badge-success" style="margin-left:4px;font-size:9px;">BUKA</span>' : '' },
-      { id: 'absen-malam', emoji: '🌙', label: 'Absen Malam',
+      { id: 'absen-malam', emoji: '🌙',
+        label: `Absen Malam${kelasInfo ? ' ' + kelasInfo.icon : ''}`,
         badge: malamOpen ? '<span class="badge badge-success" style="margin-left:4px;font-size:9px;">BUKA</span>' : '' }
     ] : [])
   ];
@@ -1068,12 +1073,12 @@ async function renderAdminView(tab = 'overview') {
   await DB.syncFromCloud();
 
   const tabs = [
-    { id: 'overview',  emoji: '📊', label: 'Dashboard'         },
-    { id: 'staff',     emoji: '👥', label: 'Master Staf'       },
-    { id: 'siswa',     emoji: '🎓', label: 'Siswa Aktif'       },
-    { id: 'mentoring', emoji: '🔗', label: 'Filter Mentoring'  },
-    { id: 'logs',      emoji: '📋', label: 'Log Aktivitas'     },
-    { id: 'issues',    emoji: '⚠️', label: 'Laporan Kendala'  }
+    { id: 'overview',        emoji: '📊', label: 'Dashboard'         },
+    { id: 'staff',           emoji: '👥', label: 'Master Staf'       },
+    { id: 'siswa',           emoji: '🎓', label: 'Siswa Aktif'       },
+    { id: 'kelas-mentoring', emoji: '🏨', label: 'Kelas Mentoring'   },
+    { id: 'logs',            emoji: '📋', label: 'Log Aktivitas'     },
+    { id: 'issues',          emoji: '⚠️', label: 'Laporan Kendala'  }
   ];
 
   const tabsHtml = tabs.map(t => `
@@ -1082,12 +1087,12 @@ async function renderAdminView(tab = 'overview') {
     </button>`).join('');
 
   const content = {
-    overview:  buildOverview,
-    staff:     buildStaffMgmt,
-    siswa:     buildSiswaView,
-    mentoring: buildMentoringFilterView,
-    logs:      buildLogsView,
-    issues:    buildIssueAlerts
+    overview:        buildOverview,
+    staff:           buildStaffMgmt,
+    siswa:           buildSiswaView,
+    'kelas-mentoring': buildKelasMentoringView,
+    logs:            buildLogsView,
+    issues:          buildIssueAlerts
   }[tab]?.() || '';
 
   $app().innerHTML = `
@@ -1906,106 +1911,201 @@ async function confirmImportSiswa(siswaList) {
 }
 
 // ============================================================
-//  FEATURE: FILTER MENTORING (Admin)
+//  FEATURE: KELAS MENTORING (Admin) — replaces Filter Mentoring
 // ============================================================
-function buildMentoringFilterView() {
-  const activeStaff  = DB.getActiveStaff();
-  const activeSiswa  = DB.getActiveSiswa();
-  const selStaffId   = App.mentoringStaffId || (activeStaff[0]?.id || '');
-  const assignedNims = DB.getMentorAssign(selStaffId);
+function buildKelasMentoringView() {
+  const activeStaff      = DB.getActiveStaff();
+  const activeSiswa      = DB.getActiveSiswa();
+  const selectedKelasId  = App.selectedKelas || KELAS_MENTORING[0].id;
+  const selectedKm       = KELAS_MENTORING.find(k => k.id === selectedKelasId);
 
-  const staffOpts = activeStaff.map(s =>
-    `<option value="${s.id}" ${s.id === selStaffId ? 'selected' : ''}>${s.nama} — ${s.jabatan}</option>`
-  ).join('');
+  /* -- 4 Summary Cards -- */
+  const kelasCardsHtml = KELAS_MENTORING.map(km => {
+    const mentor     = activeStaff.find(s => DB.getStaffKelasId(s.id) === km.id);
+    const siswaCount = DB.getSiswaByKelasId(km.id).length;
+    const isActive   = selectedKelasId === km.id;
+    return `
+      <div class="km-card ${isActive ? 'active' : ''}" onclick="selectKelasCard('${km.id}')"
+           style="--km-accent: ${km.accent};">
+        <div class="km-card-icon">${km.icon}</div>
+        <div class="km-card-name">${km.nama}</div>
+        <div class="km-card-stats">
+          <div class="km-stat">
+            <span class="km-stat-icon">👤</span>
+            <span>${mentor ? mentor.nama.split(' ').slice(0,2).join(' ') : '<em style="color:var(--text-muted)">Belum ada mentor</em>'}</span>
+          </div>
+          <div class="km-stat">
+            <span class="km-stat-icon">🎓</span>
+            <span>${siswaCount} siswa</span>
+          </div>
+        </div>
+        ${isActive ? '<div class="km-card-active-bar"></div>' : ''}
+      </div>`;
+  }).join('');
+
+  /* -- Detail Panel untuk kelas yang dipilih -- */
+  const assignedStaff    = activeStaff.find(s => DB.getStaffKelasId(s.id) === selectedKelasId);
+  const assignedStaffId  = assignedStaff?.id || '';
+  const assignedNims     = DB.getSiswaByKelasId(selectedKelasId);
+
+  const staffOpts = `<option value="">— Tidak ada mentor —</option>` +
+    activeStaff.map(s => {
+      const currentKelasId = DB.getStaffKelasId(s.id);
+      const otherKelas = currentKelasId && currentKelasId !== selectedKelasId
+        ? KELAS_MENTORING.find(k => k.id === currentKelasId) : null;
+      return `<option value="${s.id}" ${assignedStaffId === s.id ? 'selected' : ''}>${s.nama} — ${s.jabatan}${otherKelas ? ` (${otherKelas.icon} ${otherKelas.nama})` : ''}</option>`;
+    }).join('');
 
   const siswaRows = activeSiswa.length === 0
     ? `<div class="empty-state" style="padding:32px;">
          <div class="empty-big">🎓</div>
-         <p>Belum ada siswa aktif. Tambahkan siswa di tab <strong>Siswa Aktif</strong> terlebih dahulu.</p>
+         <p>Belum ada siswa aktif. Tambahkan di tab <strong>Siswa Aktif</strong>.</p>
        </div>`
     : activeSiswa.map(s => {
-        const isChecked = assignedNims.includes(s.nim);
+        const isChecked    = assignedNims.includes(s.nim);
+        const siswaKelasId = DB.getSiswaKelasId(s.nim);
+        const otherKelas   = siswaKelasId && siswaKelasId !== selectedKelasId
+          ? KELAS_MENTORING.find(k => k.id === siswaKelasId) : null;
         return `
-          <label class="mentor-assign-row ${isChecked ? 'assigned' : ''}" for="ma-${s.nim}">
-            <input type="checkbox" id="ma-${s.nim}" class="mentor-chk" value="${s.nim}" ${isChecked ? 'checked' : ''}>
+          <label class="mentor-assign-row ${isChecked ? 'assigned' : ''}" for="skm-${s.nim}">
+            <input type="checkbox" id="skm-${s.nim}" class="siswa-kelas-chk" value="${s.nim}" ${isChecked ? 'checked' : ''}>
             <div class="ma-info">
               <div class="ma-nama">${s.nama}</div>
-              <div class="ma-meta">${s.nim} · ${s.kelas} · ${s.program}</div>
+              <div class="ma-meta">${s.nim} · ${s.kelas} · ${s.program}
+                ${otherKelas ? `<span style="color:var(--warning);margin-left:4px;">⚠ ${otherKelas.icon} ${otherKelas.nama}</span>` : ''}
+              </div>
             </div>
-            <span class="ma-badge ${isChecked ? 'assigned' : ''}">${ isChecked ? '✓ Diassign' : 'Belum'}</span>
+            <span class="ma-badge ${isChecked ? 'assigned' : ''}">${isChecked ? `${selectedKm.icon} Diassign` : 'Belum'}</span>
           </label>`;
       }).join('');
 
-  // Summary: siapa saja yang sudah diassign ke staf ini
-  const selectedStaff = DB.getStaffById(selStaffId);
-  const summaryHtml = assignedNims.length === 0
-    ? `<div class="banner banner-warning" style="font-size:12px;">⚠️ Staf ini belum memiliki siswa yang diassign.</div>`
-    : `<div class="banner banner-info" style="font-size:12px;">
-         📌 <strong>${assignedNims.length} siswa</strong> diassign ke <strong>${selectedStaff?.nama || selStaffId}</strong>:
-         ${assignedNims.map(nim => {
-           const sw = DB.getSiswaByNim(nim);
-           return sw ? `<span class="badge badge-primary" style="margin:2px;">${sw.nama}</span>` : '';
-         }).join(' ')}
+  const mentorBanner = assignedStaffId
+    ? `<div class="banner banner-info" style="font-size:12px; margin-bottom:12px;">
+         📌 Mentor aktif: <strong>${assignedStaff.nama}</strong> (${assignedStaff.jabatan})<br>
+         <span style="color:var(--text-muted); font-size:11px;">Seluruh siswa di kelas ini otomatis muncul di daftar hadir staf ini.</span>
+       </div>`
+    : `<div class="banner banner-warning" style="font-size:12px; margin-bottom:12px;">
+         ⚠️ Kelas ini belum memiliki mentor. Pilih staf di bawah.
        </div>`;
 
   return `
     <div class="page-hd">
-      <h2 class="page-title">🔗 Filter Mentoring Siswa</h2>
-      <p class="page-sub">Assign siswa kepada staf mentor · ${DB.getActiveSiswa().length} siswa aktif</p>
+      <h2 class="page-title">🏨 Kelas Mentoring</h2>
+      <p class="page-sub">Kelola assignment mentor dan siswa per kelas · ${KELAS_MENTORING.length} kelas tersedia</p>
     </div>
 
-    <div class="mentoring-grid">
-      <!-- Left: Pilih Staf -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">👤 Pilih Staf Mentor</div>
+    <!-- 4 Kelas Summary Cards -->
+    <div class="km-grid">${kelasCardsHtml}</div>
+
+    <!-- Detail Panel -->
+    <div class="km-detail-wrap">
+      <div class="km-detail-header" style="border-left: 4px solid ${selectedKm.accent};">
+        <div>
+          <span class="km-detail-title">${selectedKm.icon} ${selectedKm.nama}</span>
+          <span style="font-size:12px; color:var(--text-muted); margin-left:8px;">${assignedNims.length} siswa · ${assignedStaffId ? '1 mentor' : 'Belum ada mentor'}</span>
         </div>
-        <div class="card-body">
-          <div class="form-group">
-            <label class="form-label" for="m-staff-sel">Nama Staf</label>
-            <select class="form-control" id="m-staff-sel" onchange="onMentoringStaffChange()">
-              ${staffOpts}
-            </select>
-          </div>
-          ${summaryHtml}
-          <button class="btn btn-gold btn-full" style="margin-top:16px;" onclick="saveMentoringFilter()">
-            💾 Simpan Assignment
-          </button>
-        </div>
+        <span class="badge" style="background:${selectedKm.accent}22; color:${selectedKm.accent}; border:1px solid ${selectedKm.accent}44;">
+          ${selectedKm.icon} Aktif
+        </span>
       </div>
 
-      <!-- Right: Pilih Siswa -->
-      <div class="card">
-        <div class="card-header">
-          <div class="card-title">🎓 Daftar Siswa Aktif</div>
-          <span class="badge badge-info">${activeSiswa.length} siswa</span>
+      <div class="km-detail-grid">
+        <!-- LEFT: Assign Mentor -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">👤 Assign Mentor Staf</div>
+            ${assignedStaffId ? `<span class="badge badge-success">✓ Ada Mentor</span>` : `<span class="badge badge-ghost">Belum Ada</span>`}
+          </div>
+          <div class="card-body">
+            ${mentorBanner}
+            <div class="form-group">
+              <label class="form-label" for="km-staff-sel">Pilih Staf sebagai Mentor <span class="req">*</span></label>
+              <select class="form-control" id="km-staff-sel">
+                ${staffOpts}
+              </select>
+            </div>
+            <div class="form-hint" style="font-size:11px; color:var(--text-muted); margin-bottom:12px;">
+              ℹ️ Staf yang sudah menjadi mentor di kelas lain ditampilkan dengan keterangan kelasnya.
+            </div>
+            <button class="btn btn-gold btn-full" onclick="saveStaffKelasAssign('${selectedKelasId}')">
+              💾 Simpan Mentor Kelas
+            </button>
+          </div>
         </div>
-        <div class="card-body" style="padding:0;">
-          <div class="mentor-assign-list">
+
+        <!-- RIGHT: Assign Siswa -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🎓 Assign Siswa ke Kelas</div>
+            <div style="display:flex; gap:6px; align-items:center;">
+              <span class="badge badge-info">${assignedNims.length} dipilih</span>
+              <span class="badge badge-ghost">${activeSiswa.length} total</span>
+            </div>
+          </div>
+          <div style="padding:10px 16px; border-bottom:1px solid var(--border-xs); display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" onclick="toggleKelasChk(true)">☑ Pilih Semua</button>
+            <button class="btn btn-ghost btn-sm" onclick="toggleKelasChk(false)">☐ Batal Semua</button>
+            <span style="font-size:11px; color:var(--text-muted); margin-left:auto;">⚠ = siswa sudah di kelas lain</span>
+          </div>
+          <div class="mentor-assign-list" style="max-height:380px; overflow-y:auto;">
             ${siswaRows}
+          </div>
+          <div style="padding:12px 16px; border-top:1px solid var(--border-xs);">
+            <button class="btn btn-primary btn-full" onclick="saveSiswaKelasAssign('${selectedKelasId}')">
+              💾 Simpan Daftar Siswa
+            </button>
           </div>
         </div>
       </div>
     </div>`;
 }
 
-function onMentoringStaffChange() {
-  const sel = document.getElementById('m-staff-sel');
-  App.mentoringStaffId = sel?.value || '';
-  renderAdminView('mentoring');
+/** Pilih kelas yang aktif di panel admin */
+function selectKelasCard(kelasId) {
+  App.selectedKelas = kelasId;
+  renderAdminView('kelas-mentoring');
 }
 
-async function saveMentoringFilter() {
-  const selStaffId = document.getElementById('m-staff-sel')?.value;
-  if (!selStaffId) { toast('Pilih staf terlebih dahulu', 'warning'); return; }
+/** Simpan assignment mentor (staf) ke kelas */
+async function saveStaffKelasAssign(kelasId) {
+  const newStaffId = document.getElementById('km-staff-sel')?.value || '';
 
-  const checked = [...document.querySelectorAll('.mentor-chk:checked')].map(el => el.value);
-  await DB.setMentorAssign(selStaffId, checked);
+  // Hapus mentor lama dari kelas ini (jika ada staf berbeda)
+  const prevRecord = DB.cache.staffKelas.find(a => a.kelas_id === kelasId);
+  if (prevRecord && prevRecord.staff_id !== newStaffId) {
+    await DB.setStaffKelas(prevRecord.staff_id, null);
+  }
 
-  const staf = DB.getStaffById(selStaffId);
-  toast(`✅ Assignment ${staf?.nama} berhasil disimpan! (${checked.length} siswa)`, 'success');
-  App.mentoringStaffId = selStaffId;
-  await renderAdminView('mentoring');
+  // Set mentor baru
+  if (newStaffId) {
+    await DB.setStaffKelas(newStaffId, kelasId);
+  }
+
+  const km    = KELAS_MENTORING.find(k => k.id === kelasId);
+  const staff = newStaffId ? DB.getStaffById(newStaffId) : null;
+  toast(
+    staff
+      ? `✅ ${staff.nama} berhasil ditugaskan sebagai mentor ${km.nama}!`
+      : `✅ Mentor ${km.nama} berhasil dihapus.`,
+    staff ? 'success' : 'info'
+  );
+  App.selectedKelas = kelasId;
+  await renderAdminView('kelas-mentoring');
+}
+
+/** Simpan daftar siswa yang diassign ke kelas */
+async function saveSiswaKelasAssign(kelasId) {
+  const checked = [...document.querySelectorAll('.siswa-kelas-chk:checked')].map(el => el.value);
+  await DB.setSiswaKelas(kelasId, checked);
+  const km = KELAS_MENTORING.find(k => k.id === kelasId);
+  toast(`✅ ${checked.length} siswa berhasil diassign ke ${km.nama}!`, 'success');
+  App.selectedKelas = kelasId;
+  await renderAdminView('kelas-mentoring');
+}
+
+/** Toggle semua checkbox siswa di panel kelas */
+function toggleKelasChk(state) {
+  document.querySelectorAll('.siswa-kelas-chk').forEach(cb => cb.checked = state);
 }
 
 function togglePinReveal(id) {
@@ -2741,12 +2841,17 @@ function isAbsenWindowOpen(sesi) {
 }
 
 function buildMentoringAbsen(sesi) {
-  const today       = DB.today();
-  const cfg         = ABSEN_SESI[sesi];
-  const label       = cfg.label;
-  const jam         = cfg.jam;
-  const assignedNims = DB.getMentorAssign(App.user.id);
-  const siswaList   = assignedNims
+  const today        = DB.today();
+  const cfg          = ABSEN_SESI[sesi];
+  const label        = cfg.label;
+  const jam          = cfg.jam;
+
+  // Gunakan getMentorStudents (via kelas) untuk dapat daftar siswa
+  const assignedNims = DB.getMentorStudents(App.user.id);
+  const kelasId      = DB.getStaffKelasId(App.user.id);
+  const kelasInfo    = KELAS_MENTORING.find(k => k.id === kelasId);
+
+  const siswaList    = assignedNims
     .map(nim => DB.getSiswaByNim(nim))
     .filter(Boolean)
     .filter(s => s.status === 'Aktif');
@@ -2760,6 +2865,16 @@ function buildMentoringAbsen(sesi) {
   const statSakit = savedAbsen.filter(a => a.status === 'Sakit').length;
   const statIzin  = savedAbsen.filter(a => a.status === 'Izin').length;
   const statAlfa  = savedAbsen.filter(a => a.status === 'Alfa').length;
+
+  /* -- Banner kelas info -- */
+  const kelasBannerHtml = kelasInfo ? `
+    <div style="display:inline-flex; align-items:center; gap:8px; padding:6px 14px;
+                background:${kelasInfo.accent}18; border:1px solid ${kelasInfo.accent}44;
+                border-radius:var(--r-sm); margin-bottom:var(--sp-4); font-size:13px;">
+      <span style="font-size:18px;">${kelasInfo.icon}</span>
+      <span style="color:${kelasInfo.accent}; font-weight:700;">${kelasInfo.nama}</span>
+      <span style="color:var(--text-muted);">· ${siswaList.length} siswa terdaftar</span>
+    </div>` : '';
 
   /* -- Banner waktu -- */
   let timeBanner = '';
@@ -2798,13 +2913,14 @@ function buildMentoringAbsen(sesi) {
   const rowsHtml = siswaList.length === 0
     ? `<div class="empty-state" style="padding:48px;">
          <div class="empty-big">👥</div>
-         <p>Tidak ada siswa yang diassign ke Anda saat ini.</p>
+         <p>Belum ada siswa yang terdaftar di ${kelasInfo ? kelasInfo.nama : 'kelas Anda'}.</p>
+         <p style="font-size:12px; color:var(--text-muted);">Hubungi Manager Akademik untuk menambahkan siswa ke kelas Anda.</p>
        </div>`
     : siswaList.map(s => {
-        const savedRec = savedAbsen.find(a => a.siswa_nim === s.nim);
-        const curStatus = savedRec?.status || '';
+        const savedRec   = savedAbsen.find(a => a.siswa_nim === s.nim);
+        const curStatus  = savedRec?.status || '';
         const curCatatan = savedRec?.catatan || '';
-        const locked = !isOpen; // form dikunci jika di luar jendela waktu
+        const locked     = !isOpen;
 
         const statusBtns = ['Hadir','Sakit','Izin','Alfa'].map(st => `
           <button class="absen-status-btn absen-${st.toLowerCase()} ${curStatus === st ? 'selected' : ''}"
@@ -2843,9 +2959,10 @@ function buildMentoringAbsen(sesi) {
   return `
     <div class="page-hd">
       <h2 class="page-title">${sesi === 'pagi' ? '🌅' : '🌙'} Daftar Hadir Mentoring ${label}</h2>
-      <p class="page-sub">Sesi ${jam} · ${formatDateLong(today)} · ${siswaList.length} siswa diassign</p>
+      <p class="page-sub">Sesi ${jam} · ${formatDateLong(today)}${kelasInfo ? ` · ${kelasInfo.icon} ${kelasInfo.nama}` : ''}</p>
     </div>
 
+    ${kelasBannerHtml}
     ${timeBanner}
     ${summaryHtml}
 
