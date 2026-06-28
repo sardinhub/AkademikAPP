@@ -918,18 +918,20 @@ const DB = {
 
   // ── HELPERS ──────────────────────────────────────────
 
+  /** Tanggal hari ini YYYY-MM-DD berdasarkan timezone WITA (UTC+8) */
   today() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
+    // Paksa ke WITA (Asia/Makassar = UTC+8) agar konsisten di semua perangkat
+    const wita = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Makassar' }));
+    const year  = wita.getFullYear();
+    const month = String(wita.getMonth() + 1).padStart(2, '0');
+    const day   = String(wita.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   },
 
-  /** HH:MM string dari waktu saat ini */
+  /** HH:MM string dari waktu saat ini berdasarkan WITA (UTC+8) */
   nowHHMM() {
-    const now = new Date();
-    return String(now.getHours()).padStart(2,'0') + ':' + String(now.getMinutes()).padStart(2,'0');
+    const wita = new Date(new Date().toLocaleString('en-US', { timeZone: 'Asia/Makassar' }));
+    return String(wita.getHours()).padStart(2,'0') + ':' + String(wita.getMinutes()).padStart(2,'0');
   },
 
   getInitials(name = '') {

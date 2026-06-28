@@ -2887,8 +2887,8 @@ function buildMentoringAbsen(sesi) {
         <div>
           <div class="atb-title">${isBeforeWindow ? 'Absen belum dibuka' : 'Waktu absen telah berakhir'}</div>
           <div class="atb-sub">
-            Absen ${label} hanya bisa diisi pada <strong>${cfg.windowStart} – ${cfg.windowEnd} WIB</strong>.
-            ${isBeforeWindow ? `Sekarang: ${now} WIB — silakan kembali saat jamnya tiba.` : `Sekarang: ${now} WIB.`}
+            Absen ${label} hanya bisa diisi pada <strong>${cfg.windowStart} – ${cfg.windowEnd} WITA</strong>.
+            ${isBeforeWindow ? `Sekarang: ${now} WITA — silakan kembali saat jamnya tiba.` : `Sekarang: ${now} WITA.`}
           </div>
         </div>
       </div>`;
