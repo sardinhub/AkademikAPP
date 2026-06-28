@@ -267,12 +267,30 @@ const DB = {
       return false; // Not connected
     }
     try {
-      // 1. Ambil Data Staf
-      const { data: staffData, error: staffErr } = await supabaseClient
+      // 1. Sync Data Staf (local -> cloud)
+      const { data: cloudStaff, error: staffErr } = await supabaseClient
         .from('tia_master_staff')
         .select('*');
       if (staffErr) throw staffErr;
-      this.cache.staff = staffData || [];
+      
+      const cloudStaffMap = new Map(cloudStaff.map(s => [s.id, s]));
+      const localStaff = JSON.parse(localStorage.getItem(DB_KEYS.STAFF) || '[]');
+      const unsyncedStaff = localStaff.filter(s => s._unsynced || !cloudStaffMap.has(s.id));
+      
+      for (const st of unsyncedStaff) {
+        try {
+          const cleanSt = { ...st };
+          delete cleanSt._unsynced;
+          const { error } = await supabaseClient.from('tia_master_staff').upsert([cleanSt]);
+          if (error) throw error;
+          delete st._unsynced;
+          cloudStaffMap.set(st.id, cleanSt);
+        } catch (err) {
+          console.error(`Gagal sync staff ${st.id}:`, err);
+          cloudStaffMap.set(st.id, st);
+        }
+      }
+      this.cache.staff = Array.from(cloudStaffMap.values());
 
       // 2. Ambil Data Logs dari Cloud
       const { data: cloudLogs, error: logsErr } = await supabaseClient
@@ -352,19 +370,55 @@ const DB = {
       
       this.cache.checklists = Array.from(cloudClMap.values());
 
-      // 4. Ambil Data Siswa dari Cloud
-      const { data: siswaData, error: siswaErr } = await supabaseClient
+      // 4. Sync Data Siswa (local -> cloud)
+      const { data: cloudSiswa, error: siswaErr } = await supabaseClient
         .from('tia_siswa_aktif')
         .select('*');
       if (siswaErr) throw siswaErr;
-      this.cache.siswa = siswaData || [];
+      
+      const cloudSiswaMap = new Map(cloudSiswa.map(s => [s.nim, s]));
+      const localSiswa = JSON.parse(localStorage.getItem(DB_KEYS.SISWA) || '[]');
+      const unsyncedSiswa = localSiswa.filter(s => s._unsynced || !cloudSiswaMap.has(s.nim));
+      
+      for (const sw of unsyncedSiswa) {
+        try {
+          const cleanSw = { ...sw };
+          delete cleanSw._unsynced;
+          const { error } = await supabaseClient.from('tia_siswa_aktif').upsert([cleanSw]);
+          if (error) throw error;
+          delete sw._unsynced;
+          cloudSiswaMap.set(sw.nim, cleanSw);
+        } catch (err) {
+          console.error(`Gagal sync siswa ${sw.nim}:`, err);
+          cloudSiswaMap.set(sw.nim, sw);
+        }
+      }
+      this.cache.siswa = Array.from(cloudSiswaMap.values());
 
-      // 5. Ambil Data Mentor Assign dari Cloud
-      const { data: assignData, error: assignErr } = await supabaseClient
+      // 5. Sync Data Mentor Assign (local -> cloud)
+      const { data: cloudAssigns, error: assignErr } = await supabaseClient
         .from('tia_mentor_assign')
         .select('*');
       if (assignErr) throw assignErr;
-      this.cache.mentorAssigns = assignData || [];
+      
+      const cloudAssignMap = new Map(cloudAssigns.map(a => [a.id, a]));
+      const localAssigns = JSON.parse(localStorage.getItem(DB_KEYS.MENTOR_ASSIGN) || '[]');
+      const unsyncedAssigns = localAssigns.filter(a => a._unsynced || !cloudAssignMap.has(a.id));
+      
+      for (const asn of unsyncedAssigns) {
+        try {
+          const cleanAsn = { ...asn };
+          delete cleanAsn._unsynced;
+          const { error } = await supabaseClient.from('tia_mentor_assign').upsert([cleanAsn]);
+          if (error) throw error;
+          delete asn._unsynced;
+          cloudAssignMap.set(asn.id, cleanAsn);
+        } catch (err) {
+          console.error(`Gagal sync assign ${asn.id}:`, err);
+          cloudAssignMap.set(asn.id, asn);
+        }
+      }
+      this.cache.mentorAssigns = Array.from(cloudAssignMap.values());
 
       // 6. Sync Absen Mentoring (local → cloud)
       const { data: cloudAbsen, error: absenErr } = await supabaseClient
@@ -391,19 +445,55 @@ const DB = {
       }
       this.cache.absenMentoring = Array.from(cloudAbsenMap.values());
 
-      // 7. Ambil Data Staff Kelas Assign dari Cloud
-      const { data: staffKelasData, error: skErr } = await supabaseClient
+      // 7. Sync Data Staff Kelas Assign (local -> cloud)
+      const { data: cloudStaffKelas, error: skErr } = await supabaseClient
         .from('tia_staff_kelas_assign')
         .select('*');
       if (skErr) throw skErr;
-      this.cache.staffKelas = staffKelasData || [];
+      
+      const cloudSkMap = new Map(cloudStaffKelas.map(k => [k.id, k]));
+      const localStaffKelas = JSON.parse(localStorage.getItem(DB_KEYS.STAFF_KELAS) || '[]');
+      const unsyncedStaffKelas = localStaffKelas.filter(k => k._unsynced || !cloudSkMap.has(k.id));
+      
+      for (const sk of unsyncedStaffKelas) {
+        try {
+          const cleanSk = { ...sk };
+          delete cleanSk._unsynced;
+          const { error } = await supabaseClient.from('tia_staff_kelas_assign').upsert([cleanSk]);
+          if (error) throw error;
+          delete sk._unsynced;
+          cloudSkMap.set(sk.id, cleanSk);
+        } catch (err) {
+          console.error(`Gagal sync staff kelas ${sk.id}:`, err);
+          cloudSkMap.set(sk.id, sk);
+        }
+      }
+      this.cache.staffKelas = Array.from(cloudSkMap.values());
 
-      // 8. Ambil Data Siswa Kelas Assign dari Cloud
-      const { data: siswaKelasData, error: szkErr } = await supabaseClient
+      // 8. Sync Data Siswa Kelas Assign (local -> cloud)
+      const { data: cloudSiswaKelas, error: szkErr } = await supabaseClient
         .from('tia_siswa_kelas_assign')
         .select('*');
       if (szkErr) throw szkErr;
-      this.cache.siswaKelas = siswaKelasData || [];
+      
+      const cloudSzkMap = new Map(cloudSiswaKelas.map(k => [k.id, k]));
+      const localSiswaKelas = JSON.parse(localStorage.getItem(DB_KEYS.SISWA_KELAS) || '[]');
+      const unsyncedSiswaKelas = localSiswaKelas.filter(k => k._unsynced || !cloudSzkMap.has(k.id));
+      
+      for (const szk of unsyncedSiswaKelas) {
+        try {
+          const cleanSzk = { ...szk };
+          delete cleanSzk._unsynced;
+          const { error } = await supabaseClient.from('tia_siswa_kelas_assign').upsert([cleanSzk]);
+          if (error) throw error;
+          delete szk._unsynced;
+          cloudSzkMap.set(szk.id, cleanSzk);
+        } catch (err) {
+          console.error(`Gagal sync siswa kelas ${szk.id}:`, err);
+          cloudSzkMap.set(szk.id, szk);
+        }
+      }
+      this.cache.siswaKelas = Array.from(cloudSzkMap.values());
 
       // Update backup local storage
       localStorage.setItem(DB_KEYS.STAFF,           JSON.stringify(this.cache.staff));
@@ -451,10 +541,16 @@ const DB = {
 
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_master_staff').insert([staff]);
+        const { error } = await supabaseClient.from('tia_master_staff').insert([staff]);
+        if (error) throw error;
       } catch (err) {
         console.error("Cloud insert staff failed:", err);
+        staff._unsynced = true;
+        localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(this.cache.staff));
       }
+    } else {
+      staff._unsynced = true;
+      localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(this.cache.staff));
     }
     return staff;
   },
@@ -468,10 +564,16 @@ const DB = {
 
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_master_staff').update(updates).eq('id', id);
+        const { error } = await supabaseClient.from('tia_master_staff').update(updates).eq('id', id);
+        if (error) throw error;
       } catch (err) {
         console.error("Cloud update staff failed:", err);
+        list[i]._unsynced = true;
+        localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(list));
       }
+    } else {
+      list[i]._unsynced = true;
+      localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(list));
     }
     return list[i];
   },
@@ -713,8 +815,16 @@ const DB = {
     localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(this.cache.siswa));
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_siswa_aktif').insert([siswa]);
-      } catch (err) { console.error('Cloud insert siswa failed:', err); }
+        const { error } = await supabaseClient.from('tia_siswa_aktif').insert([siswa]);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Cloud insert siswa failed:', err);
+        siswa._unsynced = true;
+        localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(this.cache.siswa));
+      }
+    } else {
+      siswa._unsynced = true;
+      localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(this.cache.siswa));
     }
     return siswa;
   },
@@ -727,8 +837,16 @@ const DB = {
     localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(list));
     if (supabaseClient) {
       try {
-        await supabaseClient.from('tia_siswa_aktif').update(updates).eq('nim', nim);
-      } catch (err) { console.error('Cloud update siswa failed:', err); }
+        const { error } = await supabaseClient.from('tia_siswa_aktif').update(updates).eq('nim', nim);
+        if (error) throw error;
+      } catch (err) {
+        console.error('Cloud update siswa failed:', err);
+        list[i]._unsynced = true;
+        localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(list));
+      }
+    } else {
+      list[i]._unsynced = true;
+      localStorage.setItem(DB_KEYS.SISWA, JSON.stringify(list));
     }
     return list[i];
   },
@@ -775,25 +893,38 @@ const DB = {
   async setMentorAssign(staffId, nimArray) {
     // Hapus assign lama untuk staf ini
     this.cache.mentorAssigns = this.cache.mentorAssigns.filter(a => a.staff_id !== staffId);
-    // Buat assign baru
-    const newAssigns = nimArray.map(nim => ({
-      id:       `MA_${staffId}_${nim}`,
-      staff_id: staffId,
-      siswa_nim: nim
-    }));
-    this.cache.mentorAssigns.push(...newAssigns);
-    localStorage.setItem(DB_KEYS.MENTOR_ASSIGN, JSON.stringify(this.cache.mentorAssigns));
-
+    let hasError = false;
     if (supabaseClient) {
       try {
         // Hapus assign lama di cloud
-        await supabaseClient.from('tia_mentor_assign').delete().eq('staff_id', staffId);
+        const { error: delErr } = await supabaseClient.from('tia_mentor_assign').delete().eq('staff_id', staffId);
+        if (delErr) throw delErr;
         // Insert baru jika ada
-        if (newAssigns.length > 0) {
-          await supabaseClient.from('tia_mentor_assign').insert(newAssigns);
+        if (nimArray.length > 0) {
+          const toInsert = nimArray.map(nim => ({
+            id:       `MA_${staffId}_${nim}`,
+            staff_id: staffId,
+            siswa_nim: nim
+          }));
+          const { error: insErr } = await supabaseClient.from('tia_mentor_assign').insert(toInsert);
+          if (insErr) throw insErr;
         }
-      } catch (err) { console.error('Cloud set mentor assign failed:', err); }
+      } catch (err) {
+        console.error('Cloud set mentor assign failed:', err);
+        hasError = true;
+      }
+    } else {
+      hasError = true;
     }
+
+    const newAssigns = nimArray.map(nim => ({
+      id:       `MA_${staffId}_${nim}`,
+      staff_id: staffId,
+      siswa_nim: nim,
+      ...(hasError ? { _unsynced: true } : {})
+    }));
+    this.cache.mentorAssigns.push(...newAssigns);
+    localStorage.setItem(DB_KEYS.MENTOR_ASSIGN, JSON.stringify(this.cache.mentorAssigns));
     return newAssigns;
   },
 
