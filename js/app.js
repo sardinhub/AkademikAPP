@@ -3208,14 +3208,15 @@ function selectAbsenStatus(nim, status) {
 
 /** Simpan semua absen siswa secara batch */
 async function saveAbsenBatch(sesi) {
-  if (!isAbsenWindowOpen(sesi)) {
+  const kelasId = DB.getStaffKelasId(App.user.id);
+  if (!isAbsenWindowOpen(sesi, kelasId)) {
     toast('Waktu absen sudah ditutup. Tidak dapat menyimpan.', 'danger');
     return;
   }
 
-  const cfg          = ABSEN_SESI[sesi];
+  const cfg          = DB.getAbsenConfig(kelasId, sesi);
   const today        = DB.today();
-  const assignedNims = DB.getMentorAssign(App.user.id);
+  const assignedNims = DB.getMentorStudents(App.user.id);
   const siswaList    = assignedNims
     .map(nim => DB.getSiswaByNim(nim))
     .filter(Boolean)
