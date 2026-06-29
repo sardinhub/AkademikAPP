@@ -62,6 +62,18 @@
      created_at text NOT NULL
    );
 
+   CREATE TABLE public.tia_staff_kelas_assign (
+     id text PRIMARY KEY,
+     staff_id text NOT NULL,
+     kelas_id text NOT NULL
+   );
+
+   CREATE TABLE public.tia_siswa_kelas_assign (
+     id text PRIMARY KEY,
+     siswa_nim text NOT NULL,
+     kelas_id text NOT NULL
+   );
+
    -- Disable RLS for rapid testing/prototype:
    ALTER TABLE public.tia_master_staff DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_log_aktivitas DISABLE ROW LEVEL SECURITY;
@@ -69,6 +81,8 @@
    ALTER TABLE public.tia_siswa_aktif DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_mentor_assign DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_absen_mentoring DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.tia_staff_kelas_assign DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.tia_siswa_kelas_assign DISABLE ROW LEVEL SECURITY;
    ============================================================ */
 
 'use strict';
@@ -101,7 +115,8 @@ const DB_KEYS = {
   MENTOR_ASSIGN:   'tia_mentor_assign',
   ABSEN_MENTORING: 'tia_absen_mentoring',
   STAFF_KELAS:     'tia_staff_kelas_assign',
-  SISWA_KELAS:     'tia_siswa_kelas_assign'
+  SISWA_KELAS:     'tia_siswa_kelas_assign',
+  ABSEN_CONFIG:    'tia_absen_config'
 };
 
 // ===========================
@@ -237,7 +252,8 @@ const DB = {
     mentorAssigns: [],
     absenMentoring: [],
     staffKelas: [],
-    siswaKelas: []
+    siswaKelas: [],
+    absenConfig: []
   },
 
   /** Initialize cache with local data & seed default staff once */
@@ -250,6 +266,18 @@ const DB = {
     this.cache.absenMentoring = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_MENTORING) || '[]');
     this.cache.staffKelas     = JSON.parse(localStorage.getItem(DB_KEYS.STAFF_KELAS) || '[]');
     this.cache.siswaKelas     = JSON.parse(localStorage.getItem(DB_KEYS.SISWA_KELAS) || '[]');
+    this.cache.absenConfig    = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_CONFIG) || '[]');
+
+    if (this.cache.absenConfig.length === 0) {
+      KELAS_MENTORING.forEach(km => {
+        this.cache.absenConfig.push({
+          kelas_id: km.id,
+          pagi_jam: '05:00', pagi_start: '05:00', pagi_end: '06:59',
+          malam_jam: '20:00', malam_start: '20:00', malam_end: '21:59'
+        });
+      });
+      localStorage.setItem(DB_KEYS.ABSEN_CONFIG, JSON.stringify(this.cache.absenConfig));
+    }
 
     // Seed only once on the first app boot
     if (!localStorage.getItem('tia_app_seeded')) {
@@ -495,6 +523,45 @@ const DB = {
       }
       this.cache.siswaKelas = Array.from(cloudSzkMap.values());
 
+      // 9. Sync Absen Config (local -> cloud)
+      const { data: cloudCfg, error: cfgErr } = await supabaseClient
+        .from('tia_absen_config')
+        .select('*');
+      if (!cfgErr && cloudCfg) {
+        const cloudCfgMap = new Map(cloudCfg.map(c => [c.kelas_id, c]));
+        const localCfg = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_CONFIG) || '[]');
+        const unsyncedCfg = localCfg.filter(c => c._unsynced || !cloudCfgMap.has(c.kelas_id));
+        
+        for (const cfg of unsyncedCfg) {
+          try {
+            const cleanCfg = { ...cfg };
+            delete cleanCfg._unsynced;
+            const { error } = await supabaseClient.from('tia_absen_config').upsert([cleanCfg]);
+            if (!error) {
+              delete cfg._unsynced;
+              cloudCfgMap.set(cfg.kelas_id, cleanCfg);
+            } else {
+              cloudCfgMap.set(cfg.kelas_id, cfg);
+            }
+          } catch (err) {
+            cloudCfgMap.set(cfg.kelas_id, cfg);
+          }
+        }
+        
+        // Populate missing configs from default if not in cloud
+        KELAS_MENTORING.forEach(km => {
+          if (!cloudCfgMap.has(km.id)) {
+            cloudCfgMap.set(km.id, {
+              kelas_id: km.id,
+              pagi_jam: '05:00', pagi_start: '05:00', pagi_end: '06:59',
+              malam_jam: '20:00', malam_start: '20:00', malam_end: '21:59'
+            });
+          }
+        });
+        
+        this.cache.absenConfig = Array.from(cloudCfgMap.values());
+      }
+
       // Update backup local storage
       localStorage.setItem(DB_KEYS.STAFF,           JSON.stringify(this.cache.staff));
       localStorage.setItem(DB_KEYS.LOGS,            JSON.stringify(this.cache.logs));
@@ -504,6 +571,7 @@ const DB = {
       localStorage.setItem(DB_KEYS.ABSEN_MENTORING, JSON.stringify(this.cache.absenMentoring));
       localStorage.setItem(DB_KEYS.STAFF_KELAS,     JSON.stringify(this.cache.staffKelas));
       localStorage.setItem(DB_KEYS.SISWA_KELAS,     JSON.stringify(this.cache.siswaKelas));
+      localStorage.setItem(DB_KEYS.ABSEN_CONFIG,    JSON.stringify(this.cache.absenConfig));
 
       console.log("Database Supabase berhasil disinkronisasi!");
       return true; // Successfully synced
@@ -1045,6 +1113,46 @@ const DB = {
     const kelasId = this.getStaffKelasId(staffId);
     if (!kelasId) return [];
     return this.getSiswaByKelasId(kelasId);
+  },
+
+  // ── ABSEN CONFIG ─────────────────────────────────────
+
+  getAbsenConfig(kelasId, sesi) {
+    if (!kelasId) return ABSEN_SESI[sesi];
+    const conf = this.cache.absenConfig.find(c => c.kelas_id === kelasId);
+    if (!conf) return ABSEN_SESI[sesi];
+    if (sesi === 'pagi') {
+      return { jam: conf.pagi_jam, windowStart: conf.pagi_start, windowEnd: conf.pagi_end, label: 'Pagi' };
+    } else {
+      return { jam: conf.malam_jam, windowStart: conf.malam_start, windowEnd: conf.malam_end, label: 'Malam' };
+    }
+  },
+
+  async updateAbsenConfig(kelasId, payload) {
+    const list = this.cache.absenConfig;
+    let i = list.findIndex(c => c.kelas_id === kelasId);
+    if (i === -1) {
+      list.push({ kelas_id: kelasId, ...payload });
+      i = list.length - 1;
+    } else {
+      list[i] = { ...list[i], ...payload };
+    }
+    localStorage.setItem(DB_KEYS.ABSEN_CONFIG, JSON.stringify(list));
+    
+    if (supabaseClient) {
+      try {
+        const { error } = await supabaseClient.from('tia_absen_config').upsert([list[i]]);
+        if (error) throw error;
+        delete list[i]._unsynced;
+        localStorage.setItem(DB_KEYS.ABSEN_CONFIG, JSON.stringify(list));
+      } catch (err) {
+        list[i]._unsynced = true;
+        localStorage.setItem(DB_KEYS.ABSEN_CONFIG, JSON.stringify(list));
+      }
+    } else {
+      list[i]._unsynced = true;
+      localStorage.setItem(DB_KEYS.ABSEN_CONFIG, JSON.stringify(list));
+    }
   },
 
   // ── HELPERS ──────────────────────────────────────────

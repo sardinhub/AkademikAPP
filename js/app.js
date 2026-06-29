@@ -370,8 +370,8 @@ async function renderStaffView(tab = 'tracker') {
   const hasAssignment = kelasId !== null && assignedNims.length > 0;
 
   // Cek jendela waktu absen
-  const pagiOpen  = isAbsenWindowOpen('pagi');
-  const malamOpen = isAbsenWindowOpen('malam');
+  const pagiOpen  = isAbsenWindowOpen('pagi', kelasId);
+  const malamOpen = isAbsenWindowOpen('malam', kelasId);
 
   const tabs = [
     { id: 'tracker',   emoji: '⏱️', label: 'Log Aktivitas',
@@ -1081,6 +1081,7 @@ async function renderAdminView(tab = 'overview') {
     { id: 'staff',           emoji: '👥', label: 'Master Staf'       },
     { id: 'siswa',           emoji: '🎓', label: 'Siswa Aktif'       },
     { id: 'kelas-mentoring', emoji: '🏨', label: 'Kelas Mentoring'   },
+    { id: 'waktu-absen',     emoji: '⏰', label: 'Waktu Absen'       },
     { id: 'rekap-absen',     emoji: '📅', label: 'Rekap Absen'       },
     { id: 'logs',            emoji: '📋', label: 'Log Aktivitas'     },
     { id: 'issues',          emoji: '⚠️', label: 'Laporan Kendala'  }
@@ -1096,6 +1097,7 @@ async function renderAdminView(tab = 'overview') {
     staff:             buildStaffMgmt,
     siswa:             buildSiswaView,
     'kelas-mentoring': buildKelasMentoringView,
+    'waktu-absen':     buildWaktuAbsenView,
     'rekap-absen':     buildRekapAbsenView,
     logs:              buildLogsView,
     issues:            buildIssueAlerts
@@ -3048,8 +3050,8 @@ async function deleteStaffLogsUI(id, nama) {
  * Pagi : 05:00 – 06:59
  * Malam: 20:00 – 21:59
  */
-function isAbsenWindowOpen(sesi) {
-  const cfg   = ABSEN_SESI[sesi];
+function isAbsenWindowOpen(sesi, kelasId) {
+  const cfg   = DB.getAbsenConfig(kelasId, sesi);
   if (!cfg) return false;
   const now   = DB.nowHHMM();
   return now >= cfg.windowStart && now <= cfg.windowEnd;
@@ -3057,13 +3059,13 @@ function isAbsenWindowOpen(sesi) {
 
 function buildMentoringAbsen(sesi) {
   const today        = DB.today();
-  const cfg          = ABSEN_SESI[sesi];
+  const kelasId      = DB.getStaffKelasId(App.user.id);
+  const cfg          = DB.getAbsenConfig(kelasId, sesi);
   const label        = cfg.label;
   const jam          = cfg.jam;
 
   // Gunakan getMentorStudents (via kelas) untuk dapat daftar siswa
   const assignedNims = DB.getMentorStudents(App.user.id);
-  const kelasId      = DB.getStaffKelasId(App.user.id);
   const kelasInfo    = KELAS_MENTORING.find(k => k.id === kelasId);
 
   const siswaList    = assignedNims
@@ -3071,7 +3073,7 @@ function buildMentoringAbsen(sesi) {
     .filter(Boolean)
     .filter(s => s.status === 'Aktif');
 
-  const isOpen      = isAbsenWindowOpen(sesi);
+  const isOpen      = isAbsenWindowOpen(sesi, kelasId);
   const savedAbsen  = DB.getAbsenMentoring({ staffId: App.user.id, tanggal: today, sesi });
   const isSubmitted = savedAbsen.length === siswaList.length && siswaList.length > 0;
 
@@ -3258,4 +3260,129 @@ async function saveAbsenBatch(sesi) {
   }
 
   await renderStaffView(`absen-${sesi}`);
+}
+
+// ============================================================
+//  FEATURE: WAKTU ABSEN MENTORING (Admin)
+// ============================================================
+
+function buildWaktuAbsenView() {
+  const rows = KELAS_MENTORING.map(km => {
+    const cfgPagi = DB.getAbsenConfig(km.id, 'pagi');
+    const cfgMalam = DB.getAbsenConfig(km.id, 'malam');
+    
+    return `
+      <tr>
+        <td>
+          <div class="name-cell">
+            <div class="av av-sm" style="background:${km.accent}22; color:${km.accent}; flex-shrink:0">${km.icon}</div>
+            <span class="td-strong">${km.nama}</span>
+          </div>
+        </td>
+        <td>
+          <span class="badge badge-info" style="font-size:11px;">${cfgPagi.jam}</span><br>
+          <span style="font-size:11px; color:var(--text-muted)">${cfgPagi.windowStart} - ${cfgPagi.windowEnd}</span>
+        </td>
+        <td>
+          <span class="badge badge-info" style="font-size:11px;">${cfgMalam.jam}</span><br>
+          <span style="font-size:11px; color:var(--text-muted)">${cfgMalam.windowStart} - ${cfgMalam.windowEnd}</span>
+        </td>
+        <td>
+          <button class="btn btn-ghost btn-sm" onclick="openEditWaktuAbsen('${km.id}')">✏️ Edit Jam</button>
+        </td>
+      </tr>`;
+  }).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">⏰ Pengaturan Waktu Absen</h2>
+      <p class="page-sub">Atur jendela waktu absensi Pagi dan Malam per kelas mentoring</p>
+    </div>
+
+    <div class="card">
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Kelas Mentoring</th>
+              <th>Sesi Pagi</th>
+              <th>Sesi Malam</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function openEditWaktuAbsen(kelasId) {
+  const km = KELAS_MENTORING.find(k => k.id === kelasId);
+  if (!km) return;
+  const cfgPagi = DB.getAbsenConfig(kelasId, 'pagi');
+  const cfgMalam = DB.getAbsenConfig(kelasId, 'malam');
+  
+  const modalHtml = `
+    <div class="modal-box">
+      <div class="modal-hd">
+        <h3 class="modal-title">⏰ Edit Waktu Absen ${km.nama}</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" style="text-align:left;">
+        <h4 style="margin-bottom:8px; color:var(--gold-light); font-size:13px;">Sesi Pagi</h4>
+        <div style="display:flex; gap:12px; margin-bottom:16px;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Buka</label>
+            <input type="time" class="form-control" id="m-pagi-start" value="${cfgPagi.windowStart}">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Tutup</label>
+            <input type="time" class="form-control" id="m-pagi-end" value="${cfgPagi.windowEnd}">
+          </div>
+        </div>
+        
+        <h4 style="margin-bottom:8px; color:var(--gold-light); font-size:13px;">Sesi Malam</h4>
+        <div style="display:flex; gap:12px; margin-bottom:0;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Buka</label>
+            <input type="time" class="form-control" id="m-malam-start" value="${cfgMalam.windowStart}">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Tutup</label>
+            <input type="time" class="form-control" id="m-malam-end" value="${cfgMalam.windowEnd}">
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:8px;">
+        <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+        <button class="btn btn-primary" onclick="saveWaktuAbsen('${kelasId}')">💾 Simpan</button>
+      </div>
+    </div>`;
+    
+  openModal(modalHtml);
+}
+
+async function saveWaktuAbsen(kelasId) {
+  const pStart = document.getElementById('m-pagi-start')?.value;
+  const pEnd = document.getElementById('m-pagi-end')?.value;
+  const mStart = document.getElementById('m-malam-start')?.value;
+  const mEnd = document.getElementById('m-malam-end')?.value;
+  
+  if (!pStart || !pEnd || !mStart || !mEnd) {
+    toast('Harap isi semua kolom waktu.', 'warning');
+    return;
+  }
+  
+  await DB.updateAbsenConfig(kelasId, {
+    pagi_jam: pStart,
+    pagi_start: pStart,
+    pagi_end: pEnd,
+    malam_jam: mStart,
+    malam_start: mStart,
+    malam_end: mEnd
+  });
+  
+  toast('✅ Waktu absen berhasil diperbarui!', 'success');
+  closeModal();
+  renderAdminView('waktu-absen');
 }
