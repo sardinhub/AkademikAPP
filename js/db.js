@@ -229,15 +229,7 @@ const CHECKLIST_ITEMS = [
   { id: 'audio',      name: 'Sistem Audio (Mic / Speaker)',        icon: '🔊', skipFor: ['kelas-garuda','kelas-citilink','lapangan','teras-aspura'] }
 ];
 
-/** Default seed staff for fresh install */
-const DEFAULT_STAFF = [
-  { id: 'STF001', nama: 'Ahmad Fauzi',        jabatan: 'Koordinator Akademik', status: 'Aktif', pin: '1234' },
-  { id: 'STF002', nama: 'Sari Dewi Rahayu',   jabatan: 'Staf Pengajar',        status: 'Aktif', pin: '1234' },
-  { id: 'STF003', nama: 'Budi Santoso',        jabatan: 'Staf Pengajar',        status: 'Aktif', pin: '1234' },
-  { id: 'STF004', nama: 'Rina Kusuma Wardani', jabatan: 'Admin Akademik',       status: 'Aktif', pin: '1234' },
-  { id: 'STF005', nama: 'Dian Pratama',        jabatan: 'Staf Pengajar',        status: 'Aktif', pin: '1234' },
-  { id: 'STF006', nama: 'Fitri Handayani',     jabatan: 'Admin Akademik',       status: 'Aktif', pin: '1234' }
-];
+// Data dummy staf telah dihapus — data staf dikelola murni melalui form tambah staf atau sinkronisasi Supabase.
 
 // ===========================
 // DATABASE OBJECT
@@ -278,12 +270,12 @@ const DB = {
       });
       localStorage.setItem(DB_KEYS.ABSEN_CONFIG, JSON.stringify(this.cache.absenConfig));
     }
-
-    // Seed only once on the first app boot
-    if (!localStorage.getItem('tia_app_seeded')) {
-      this.cache.staff = [...DEFAULT_STAFF];
+    // Bersihkan flag lama dan data dummy staf (STF001-STF006) dari localStorage
+    const DUMMY_IDS = ['STF001','STF002','STF003','STF004','STF005','STF006'];
+    if (localStorage.getItem('tia_app_seeded')) {
+      this.cache.staff = this.cache.staff.filter(s => !DUMMY_IDS.includes(s.id));
       localStorage.setItem(DB_KEYS.STAFF, JSON.stringify(this.cache.staff));
-      localStorage.setItem('tia_app_seeded', 'true');
+      localStorage.removeItem('tia_app_seeded');
     }
   },
 
@@ -302,6 +294,20 @@ const DB = {
       if (staffErr) throw staffErr;
       
       const cloudStaffMap = new Map(cloudStaff.map(s => [s.id, s]));
+
+      // Hapus data dummy STF001-STF006 dari Supabase jika masih ada
+      const DUMMY_IDS = ['STF001','STF002','STF003','STF004','STF005','STF006'];
+      const dummyInCloud = DUMMY_IDS.filter(id => cloudStaffMap.has(id));
+      for (const dId of dummyInCloud) {
+        try {
+          await supabaseClient.from('tia_master_staff').delete().eq('id', dId);
+          cloudStaffMap.delete(dId);
+          console.log(`Data dummy staf ${dId} berhasil dihapus dari Supabase.`);
+        } catch (err) {
+          console.warn(`Gagal hapus dummy staf ${dId} dari Supabase:`, err);
+        }
+      }
+
       const localStaff = JSON.parse(localStorage.getItem(DB_KEYS.STAFF) || '[]');
       const unsyncedStaff = localStaff.filter(s => s._unsynced || !cloudStaffMap.has(s.id));
       
