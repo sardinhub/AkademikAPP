@@ -380,7 +380,14 @@ textarea.form-control { resize: vertical; min-height: 90px; line-height: 1.6; }
   border: 1px solid var(--border-sm);
 }
 .btn-ghost:hover:not(:disabled) { border-color: var(--border-md); color: var(--text-primary); background: var(--bg-card-hover); }
+.btn-info {
+  background: var(--info-bg);
+  color: var(--info);
+  border: 1px solid var(--info-border);
+}
+.btn-info:hover:not(:disabled) { background: var(--info); color: #fff; box-shadow: 0 6px 24px rgba(56,189,248,.35); transform: translateY(-1px); }
 .btn-sm { font-size: 12px; padding: 7px 14px; border-radius: var(--r-sm); }
+
 .btn-lg { font-size: 16px; padding: 15px 32px; border-radius: var(--r-lg); }
 .btn-full { width: 100%; }
 .btn-icon {
