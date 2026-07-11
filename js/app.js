@@ -359,6 +359,10 @@ async function doLogin() {
 //  STAFF SHELL
 // ============================================================
 async function renderStaffView(tab = 'tracker') {
+  const isSabtu = new Date().getDay() === 6;
+  if (isSabtu && (tab === 'absen-pagi' || tab === 'absen-malam')) tab = 'absen-sabtu';
+  if (!isSabtu && tab === 'absen-sabtu') tab = 'absen-pagi';
+
   App.tab = tab;
   await DB.syncFromCloud();
   const todayLogs = DB.getStaffLogsToday(App.user.id);
@@ -384,14 +388,18 @@ async function renderStaffView(tab = 'tracker') {
     { id: 'tracker',   emoji: '⏱️', label: 'Log Aktivitas',
       badge: `<span class="log-bubble">${todayLogs.length}</span>` },
     { id: 'checklist', emoji: '✅', label: 'Checklist Kelas', badge: '' },
-    ...(hasAssignment ? [
+    ...(hasAssignment ? (isSabtu ? [
+      { id: 'absen-sabtu', emoji: '🟡',
+        label: `Absen Sabtu${kelasInfo ? ' ' + kelasInfo.icon : ''}`,
+        badge: isAbsenWindowOpen('sabtu', kelasId) ? '<span class="badge badge-success" style="margin-left:4px;font-size:9px;">BUKA</span>' : '' }
+    ] : [
       { id: 'absen-pagi',  emoji: '🌅',
         label: `Absen Pagi${kelasInfo ? ' ' + kelasInfo.icon : ''}`,
         badge: pagiOpen  ? '<span class="badge badge-success" style="margin-left:4px;font-size:9px;">BUKA</span>' : '' },
       { id: 'absen-malam', emoji: '🌙',
         label: `Absen Malam${kelasInfo ? ' ' + kelasInfo.icon : ''}`,
         badge: malamOpen ? '<span class="badge badge-success" style="margin-left:4px;font-size:9px;">BUKA</span>' : '' }
-    ] : []),
+    ]) : []),
     { id: 'piket-saya',  emoji: '🗓️', label: 'Jadwal Piket',
       badge: adaPiket ? '<span class="badge badge-warning" style="margin-left:4px;font-size:9px;">PIKET</span>' : '' },
     { id: 'nilai-saya',  emoji: '⭐', label: 'Nilai Saya', badge: '' },
@@ -410,6 +418,7 @@ async function renderStaffView(tab = 'tracker') {
   else if (tab === 'checklist') tabContent = buildChecklist();
   else if (tab === 'absen-pagi')  tabContent = buildMentoringAbsen('pagi');
   else if (tab === 'absen-malam') tabContent = buildMentoringAbsen('malam');
+  else if (tab === 'absen-sabtu') tabContent = buildMentoringAbsen('sabtu');
   else if (tab === 'piket-saya')  tabContent = buildPiketSaya();
   else if (tab === 'nilai-saya')  tabContent = buildNilaiSaya();
   else if (tab === 'izin-saya')   tabContent = buildIzinSaya();
@@ -3151,7 +3160,7 @@ function buildMentoringAbsen(sesi) {
     const isBeforeWindow = now < cfg.windowStart;
     timeBanner = `
       <div class="absen-time-banner ${isBeforeWindow ? 'banner-waiting' : 'banner-closed'}">
-        <div class="atb-icon">${sesi === 'pagi' ? '🌅' : '🌙'}</div>
+        <div class="atb-icon">${sesi === 'pagi' ? '🌅' : sesi === 'malam' ? '🌙' : '🟡'}</div>
         <div>
           <div class="atb-title">${isBeforeWindow ? 'Absen belum dibuka' : 'Waktu absen telah berakhir'}</div>
           <div class="atb-sub">
@@ -3322,6 +3331,7 @@ function buildWaktuAbsenView() {
   const rows = KELAS_MENTORING.map(km => {
     const cfgPagi = DB.getAbsenConfig(km.id, 'pagi');
     const cfgMalam = DB.getAbsenConfig(km.id, 'malam');
+    const cfgSabtu = DB.getAbsenConfig(km.id, 'sabtu');
     
     return `
       <tr>
@@ -3340,6 +3350,10 @@ function buildWaktuAbsenView() {
           <span style="font-size:11px; color:var(--text-muted)">${cfgMalam.windowStart} - ${cfgMalam.windowEnd}</span>
         </td>
         <td>
+          <span class="badge badge-info" style="font-size:11px;">${cfgSabtu.jam}</span><br>
+          <span style="font-size:11px; color:var(--text-muted)">${cfgSabtu.windowStart} - ${cfgSabtu.windowEnd}</span>
+        </td>
+        <td>
           <button class="btn btn-ghost btn-sm" onclick="openEditWaktuAbsen('${km.id}')">✏️ Edit Jam</button>
         </td>
       </tr>`;
@@ -3348,7 +3362,7 @@ function buildWaktuAbsenView() {
   return `
     <div class="page-hd">
       <h2 class="page-title">⏰ Pengaturan Waktu Absen</h2>
-      <p class="page-sub">Atur jendela waktu absensi Pagi dan Malam per kelas mentoring</p>
+      <p class="page-sub">Atur jendela waktu absensi Pagi, Malam, dan Sabtu per kelas mentoring</p>
     </div>
 
     <div class="card">
@@ -3359,6 +3373,7 @@ function buildWaktuAbsenView() {
               <th>Kelas Mentoring</th>
               <th>Sesi Pagi</th>
               <th>Sesi Malam</th>
+              <th>Sesi Sabtu</th>
               <th>Aksi</th>
             </tr>
           </thead>
@@ -3373,14 +3388,15 @@ function openEditWaktuAbsen(kelasId) {
   if (!km) return;
   const cfgPagi = DB.getAbsenConfig(kelasId, 'pagi');
   const cfgMalam = DB.getAbsenConfig(kelasId, 'malam');
+  const cfgSabtu = DB.getAbsenConfig(kelasId, 'sabtu');
   
   const modalHtml = `
-    <div class="modal-box">
+    <div class="modal-box" style="max-width: 500px;">
       <div class="modal-hd">
         <h3 class="modal-title">⏰ Edit Waktu Absen ${km.nama}</h3>
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
-      <div class="modal-body" style="text-align:left;">
+      <div class="modal-body" style="text-align:left; max-height: 70vh; overflow-y: auto;">
         <h4 style="margin-bottom:8px; color:var(--gold-light); font-size:13px;">Sesi Pagi</h4>
         <div style="display:flex; gap:12px; margin-bottom:16px;">
           <div class="form-group" style="flex:1;">
@@ -3394,7 +3410,7 @@ function openEditWaktuAbsen(kelasId) {
         </div>
         
         <h4 style="margin-bottom:8px; color:var(--gold-light); font-size:13px;">Sesi Malam</h4>
-        <div style="display:flex; gap:12px; margin-bottom:0;">
+        <div style="display:flex; gap:12px; margin-bottom:16px;">
           <div class="form-group" style="flex:1;">
             <label class="form-label">Buka</label>
             <input type="time" class="form-control" id="m-malam-start" value="${cfgMalam.windowStart}">
@@ -3402,6 +3418,18 @@ function openEditWaktuAbsen(kelasId) {
           <div class="form-group" style="flex:1;">
             <label class="form-label">Tutup</label>
             <input type="time" class="form-control" id="m-malam-end" value="${cfgMalam.windowEnd}">
+          </div>
+        </div>
+
+        <h4 style="margin-bottom:8px; color:var(--gold-light); font-size:13px;">Sesi Sabtu</h4>
+        <div style="display:flex; gap:12px; margin-bottom:0;">
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Buka</label>
+            <input type="time" class="form-control" id="m-sabtu-start" value="${cfgSabtu.windowStart}">
+          </div>
+          <div class="form-group" style="flex:1;">
+            <label class="form-label">Tutup</label>
+            <input type="time" class="form-control" id="m-sabtu-end" value="${cfgSabtu.windowEnd}">
           </div>
         </div>
       </div>
@@ -3419,8 +3447,10 @@ async function saveWaktuAbsen(kelasId) {
   const pEnd = document.getElementById('m-pagi-end')?.value;
   const mStart = document.getElementById('m-malam-start')?.value;
   const mEnd = document.getElementById('m-malam-end')?.value;
+  const sStart = document.getElementById('m-sabtu-start')?.value;
+  const sEnd = document.getElementById('m-sabtu-end')?.value;
   
-  if (!pStart || !pEnd || !mStart || !mEnd) {
+  if (!pStart || !pEnd || !mStart || !mEnd || !sStart || !sEnd) {
     toast('Harap isi semua kolom waktu.', 'warning');
     return;
   }
@@ -3431,7 +3461,10 @@ async function saveWaktuAbsen(kelasId) {
     pagi_end: pEnd,
     malam_jam: mStart,
     malam_start: mStart,
-    malam_end: mEnd
+    malam_end: mEnd,
+    sabtu_jam: sStart,
+    sabtu_start: sStart,
+    sabtu_end: sEnd
   });
   
   toast('✅ Waktu absen berhasil diperbarui!', 'success');

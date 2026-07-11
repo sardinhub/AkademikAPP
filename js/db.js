@@ -154,7 +154,8 @@ const KELAS_MENTORING = [
 /** Sesi absen mentoring dan jendela waktu yang diizinkan */
 const ABSEN_SESI = {
   pagi:  { label: 'Pagi',  jam: '05:00', windowStart: '05:00', windowEnd: '06:59' },
-  malam: { label: 'Malam', jam: '20:00', windowStart: '20:00', windowEnd: '21:59' }
+  malam: { label: 'Malam', jam: '20:00', windowStart: '20:00', windowEnd: '21:59' },
+  sabtu: { label: 'Sabtu Pagi', jam: '09:00', windowStart: '09:00', windowEnd: '11:59' }
 };
 
 // ===========================
@@ -1218,9 +1219,11 @@ const DB = {
     const conf = this.cache.absenConfig.find(c => c.kelas_id === kelasId);
     if (!conf) return ABSEN_SESI[sesi];
     if (sesi === 'pagi') {
-      return { jam: conf.pagi_jam, windowStart: conf.pagi_start, windowEnd: conf.pagi_end, label: 'Pagi' };
-    } else {
-      return { jam: conf.malam_jam, windowStart: conf.malam_start, windowEnd: conf.malam_end, label: 'Malam' };
+      return { jam: conf.pagi_jam || ABSEN_SESI.pagi.jam, windowStart: conf.pagi_start || ABSEN_SESI.pagi.windowStart, windowEnd: conf.pagi_end || ABSEN_SESI.pagi.windowEnd, label: 'Pagi' };
+    } else if (sesi === 'malam') {
+      return { jam: conf.malam_jam || ABSEN_SESI.malam.jam, windowStart: conf.malam_start || ABSEN_SESI.malam.windowStart, windowEnd: conf.malam_end || ABSEN_SESI.malam.windowEnd, label: 'Malam' };
+    } else if (sesi === 'sabtu') {
+      return { jam: conf.sabtu_jam || ABSEN_SESI.sabtu.jam, windowStart: conf.sabtu_start || ABSEN_SESI.sabtu.windowStart, windowEnd: conf.sabtu_end || ABSEN_SESI.sabtu.windowEnd, label: 'Sabtu Pagi' };
     }
   },
 
