@@ -2592,7 +2592,7 @@ function buildLogsView() {
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <span class="badge badge-gold">${logs.length} entri</span>
           <button class="btn btn-success btn-sm" onclick="exportLogsToExcel(App.logFilter)" title="Download Excel">📥 Excel</button>
-          <button class="btn btn-info btn-sm" onclick="exportLogsToPDF(App.logFilter)" title="Download PDF" style="background:var(--info-bg);color:var(--info);border:1px solid var(--info-border);">📄 PDF</button>
+          <button class="btn btn-info btn-sm" onclick="exportLogsToPDF(App.logFilter)" title="Download PDF">📄 PDF</button>
           <button class="btn btn-danger btn-sm" onclick="deleteAllLogsUI()">🗑️ Hapus Semua Log</button>
         </div>
       </div>
