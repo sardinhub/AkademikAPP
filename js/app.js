@@ -373,6 +373,13 @@ async function renderStaffView(tab = 'tracker') {
   const pagiOpen  = isAbsenWindowOpen('pagi', kelasId);
   const malamOpen = isAbsenWindowOpen('malam', kelasId);
 
+  // Cek piket hari ini
+  const piketHariIni = DB.getPiket({ staffId: App.user.id, tanggal: DB.today() });
+  const adaPiket = piketHariIni.length > 0;
+
+  // Cek izin pending
+  const izinPending = DB.getIzin({ staffId: App.user.id }).filter(i => i.status === 'Menunggu').length;
+
   const tabs = [
     { id: 'tracker',   emoji: '⏱️', label: 'Log Aktivitas',
       badge: `<span class="log-bubble">${todayLogs.length}</span>` },
@@ -384,7 +391,12 @@ async function renderStaffView(tab = 'tracker') {
       { id: 'absen-malam', emoji: '🌙',
         label: `Absen Malam${kelasInfo ? ' ' + kelasInfo.icon : ''}`,
         badge: malamOpen ? '<span class="badge badge-success" style="margin-left:4px;font-size:9px;">BUKA</span>' : '' }
-    ] : [])
+    ] : []),
+    { id: 'piket-saya',  emoji: '🗓️', label: 'Jadwal Piket',
+      badge: adaPiket ? '<span class="badge badge-warning" style="margin-left:4px;font-size:9px;">PIKET</span>' : '' },
+    { id: 'nilai-saya',  emoji: '⭐', label: 'Nilai Saya', badge: '' },
+    { id: 'izin-saya',   emoji: '📝', label: 'Pengajuan Izin',
+      badge: izinPending > 0 ? `<span class="log-bubble">${izinPending}</span>` : '' }
   ];
 
   const tabsHtml = tabs.map(t => `
@@ -398,11 +410,28 @@ async function renderStaffView(tab = 'tracker') {
   else if (tab === 'checklist') tabContent = buildChecklist();
   else if (tab === 'absen-pagi')  tabContent = buildMentoringAbsen('pagi');
   else if (tab === 'absen-malam') tabContent = buildMentoringAbsen('malam');
+  else if (tab === 'piket-saya')  tabContent = buildPiketSaya();
+  else if (tab === 'nilai-saya')  tabContent = buildNilaiSaya();
+  else if (tab === 'izin-saya')   tabContent = buildIzinSaya();
+
+  // Banner pengumuman aktif
+  const pengumuman = DB.getPengumuman();
+  const bannerHtml = pengumuman.length > 0 ? `
+    <div class="pengumuman-banner-wrap">
+      ${pengumuman.slice(0, 3).map(p => `
+        <div class="pengumuman-banner peng-${p.tipe}">
+          <span class="peng-icon">${p.tipe === 'warning' ? '⚠️' : p.tipe === 'danger' ? '🚨' : 'ℹ️'}</span>
+          <div class="peng-text"><strong>${p.judul}</strong> — ${p.isi}</div>
+          <span class="peng-time">${new Date(p.created_at).toLocaleDateString('id-ID', {day:'2-digit',month:'short'})}</span>
+        </div>
+      `).join('')}
+    </div>` : '';
 
   $app().innerHTML = `
     <div class="app-layout">
       ${renderHeader()}
       <main class="app-content">
+        ${bannerHtml}
         <div class="tab-nav">${tabsHtml}</div>
         <div class="tab-content anim-in" id="tab-body">
           ${tabContent}
@@ -1084,7 +1113,12 @@ async function renderAdminView(tab = 'overview') {
     { id: 'waktu-absen',     emoji: '⏰', label: 'Waktu Absen'       },
     { id: 'rekap-absen',     emoji: '📅', label: 'Rekap Absen'       },
     { id: 'logs',            emoji: '📋', label: 'Log Aktivitas'     },
-    { id: 'issues',          emoji: '⚠️', label: 'Laporan Kendala'  }
+    { id: 'issues',          emoji: '⚠️', label: 'Laporan Kendala'  },
+    { id: 'pengumuman',      emoji: '📢', label: 'Pengumuman'        },
+    { id: 'statistik',       emoji: '📈', label: 'Statistik'         },
+    { id: 'penilaian',       emoji: '⭐', label: 'Penilaian'         },
+    { id: 'jadwal-piket',    emoji: '🗓️', label: 'Jadwal Piket'     },
+    { id: 'permohonan-izin', emoji: '📝', label: 'Permohonan Izin'   }
   ];
 
   const tabsHtml = tabs.map(t => `
@@ -1100,7 +1134,12 @@ async function renderAdminView(tab = 'overview') {
     'waktu-absen':     buildWaktuAbsenView,
     'rekap-absen':     buildRekapAbsenView,
     logs:              buildLogsView,
-    issues:            buildIssueAlerts
+    issues:            buildIssueAlerts,
+    pengumuman:        buildPengumumanView,
+    statistik:         buildStatistikView,
+    penilaian:         buildPenilaianView,
+    'jadwal-piket':    buildJadwalPiketView,
+    'permohonan-izin': buildIzinAdminView
   }[tab]?.() || '';
 
   $app().innerHTML = `
@@ -1113,6 +1152,11 @@ async function renderAdminView(tab = 'overview') {
     </div>`;
 
   startClock();
+
+  // Init chart setelah DOM siap
+  if (tab === 'statistik') {
+    setTimeout(() => initCharts(), 100);
+  }
 }
 
 // ============================================================
@@ -2299,6 +2343,11 @@ function buildRekapAbsenView() {
       </div>
     </div>
 
+    <!-- Export Buttons -->
+    <div style="display:flex; gap:8px; margin-bottom:12px; justify-content:flex-end;">
+      <button class="btn btn-success btn-sm" onclick="exportRekapToExcel()" title="Download Rekap Excel">📥 Export Excel</button>
+    </div>
+
     <!-- 4 Kelas Summary Stats -->
     <div class="rekap-stats-grid">
       ${kelasStatHtml}
@@ -2540,8 +2589,10 @@ function buildLogsView() {
     <div class="card">
       <div class="card-header">
         <div class="card-title">📋 Rekap Data Log</div>
-        <div style="display:flex; gap:8px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <span class="badge badge-gold">${logs.length} entri</span>
+          <button class="btn btn-success btn-sm" onclick="exportLogsToExcel(App.logFilter)" title="Download Excel">📥 Excel</button>
+          <button class="btn btn-info btn-sm" onclick="exportLogsToPDF(App.logFilter)" title="Download PDF" style="background:var(--info-bg);color:var(--info);border:1px solid var(--info-border);">📄 PDF</button>
           <button class="btn btn-danger btn-sm" onclick="deleteAllLogsUI()">🗑️ Hapus Semua Log</button>
         </div>
       </div>
@@ -3386,4 +3437,727 @@ async function saveWaktuAbsen(kelasId) {
   toast('✅ Waktu absen berhasil diperbarui!', 'success');
   closeModal();
   renderAdminView('waktu-absen');
+}
+
+// ============================================================
+//  FITUR 1 — PENGUMUMAN / NOTIFIKASI (ADMIN)
+// ============================================================
+function buildPengumumanView() {
+  const list = DB.getPengumumanAll();
+  const rows = list.length === 0
+    ? `<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted)">Belum ada pengumuman.</td></tr>`
+    : list.map(p => {
+        const isExpired = p.expired_at && p.expired_at < new Date().toISOString();
+        return `
+        <tr>
+          <td><span class="badge badge-${p.tipe === 'warning' ? 'warning' : p.tipe === 'danger' ? 'danger' : 'info'}">${p.tipe === 'warning' ? '⚠️ Peringatan' : p.tipe === 'danger' ? '🚨 Penting' : 'ℹ️ Info'}</span></td>
+          <td><strong>${p.judul}</strong></td>
+          <td style="max-width:300px;">${p.isi}</td>
+          <td><span class="text-sm text-muted">${new Date(p.created_at).toLocaleDateString('id-ID',{day:'2-digit',month:'short',year:'numeric'})}</span></td>
+          <td><span class="badge ${isExpired ? 'badge-ghost' : 'badge-success'}">${isExpired ? 'Kadaluarsa' : 'Aktif'}</span></td>
+          <td><button class="btn btn-danger btn-sm" onclick="hapusPengumuman('${p.id}')">🗑 Hapus</button></td>
+        </tr>`;
+      }).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">📢 Pengumuman & Notifikasi</h2>
+      <p class="page-sub">Kelola pengumuman yang tampil di halaman semua staf</p>
+    </div>
+
+    <div class="card mb-6">
+      <div class="card-header"><div class="card-title">➕ Buat Pengumuman Baru</div></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Judul Pengumuman <span class="req">*</span></label>
+            <input type="text" class="form-control" id="peng-judul" placeholder="Contoh: Jadwal Libur Nasional">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Tipe</label>
+            <select class="form-control" id="peng-tipe">
+              <option value="info">ℹ️ Info</option>
+              <option value="warning">⚠️ Peringatan</option>
+              <option value="danger">🚨 Penting / Urgent</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Isi Pengumuman <span class="req">*</span></label>
+          <textarea class="form-control" id="peng-isi" rows="3" placeholder="Tulis isi pengumuman di sini..."></textarea>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Berlaku Hingga (Opsional)</label>
+          <input type="date" class="form-control" id="peng-expired" style="max-width:220px;">
+          <span class="form-hint">Kosongkan jika tidak ada batas waktu.</span>
+        </div>
+        <button class="btn btn-primary" onclick="simpanPengumuman()">📢 Posting Pengumuman</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">📋 Daftar Pengumuman</div><span class="badge badge-info">${list.length} total</span></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Tipe</th><th>Judul</th><th>Isi</th><th>Tanggal</th><th>Status</th><th>Aksi</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function simpanPengumuman() {
+  const judul = document.getElementById('peng-judul')?.value?.trim();
+  const isi   = document.getElementById('peng-isi')?.value?.trim();
+  const tipe  = document.getElementById('peng-tipe')?.value;
+  const exp   = document.getElementById('peng-expired')?.value;
+
+  if (!judul || !isi) { toast('Judul dan isi pengumuman wajib diisi.', 'warning'); return; }
+
+  await DB.addPengumuman({
+    judul, isi, tipe,
+    dibuat_oleh: App.user.nama,
+    expired_at: exp ? exp + 'T23:59:59.000Z' : null
+  });
+  toast('✅ Pengumuman berhasil diposting!', 'success');
+  renderAdminView('pengumuman');
+}
+
+async function hapusPengumuman(id) {
+  if (!confirm('Hapus pengumuman ini?')) return;
+  await DB.deletePengumuman(id);
+  toast('Pengumuman dihapus.', 'info');
+  renderAdminView('pengumuman');
+}
+
+// ============================================================
+//  FITUR 2 — STATISTIK & GRAFIK (ADMIN)
+// ============================================================
+function buildStatistikView() {
+  const today   = DB.today();
+  const staff   = DB.getActiveStaff();
+  const allLogs = DB.getLogs({});
+
+  // Hitung 7 hari terakhir
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().slice(0, 10);
+  });
+
+  // Rata-rata log/staf hari ini
+  const todayLogs = allLogs.filter(l => l.tanggal === today);
+  const avgLog = staff.length > 0 ? (todayLogs.length / staff.length).toFixed(1) : '0';
+
+  // Total log minggu ini
+  const weekLogs = allLogs.filter(l => last7.includes(l.tanggal)).length;
+
+  // Staf paling aktif hari ini
+  const staffAktif = staff.map(s => ({
+    nama: s.nama.split(' ')[0],
+    count: todayLogs.filter(l => l.staff_id === s.id).length
+  })).sort((a, b) => b.count - a.count);
+  const topStaf = staffAktif[0];
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">📈 Statistik & Grafik Aktivitas</h2>
+      <p class="page-sub">Visualisasi data log aktivitas staf 7 hari terakhir</p>
+    </div>
+
+    <div class="stats-grid" style="margin-bottom:24px;">
+      <div class="stat-card stat-primary">
+        <div class="stat-emoji">📝</div>
+        <div class="stat-value">${todayLogs.length}</div>
+        <div class="stat-label">Total Log Hari Ini</div>
+      </div>
+      <div class="stat-card stat-gold">
+        <div class="stat-emoji">📊</div>
+        <div class="stat-value">${avgLog}</div>
+        <div class="stat-label">Rata-rata Log/Staf</div>
+      </div>
+      <div class="stat-card stat-success">
+        <div class="stat-emoji">🗓️</div>
+        <div class="stat-value">${weekLogs}</div>
+        <div class="stat-label">Log Minggu Ini</div>
+      </div>
+      <div class="stat-card stat-danger">
+        <div class="stat-emoji">🏆</div>
+        <div class="stat-value">${topStaf?.nama || '—'}</div>
+        <div class="stat-label">Staf Paling Aktif</div>
+      </div>
+    </div>
+
+    <div class="dash-grid">
+      <div class="card">
+        <div class="card-header"><div class="card-title">📊 Log per Staf (Hari Ini)</div></div>
+        <div class="card-body"><canvas id="chart-staf" height="220"></canvas></div>
+      </div>
+      <div class="card">
+        <div class="card-header"><div class="card-title">🍩 Distribusi Kategori Aktivitas</div></div>
+        <div class="card-body"><canvas id="chart-kategori" height="220"></canvas></div>
+      </div>
+    </div>
+
+    <div class="card mt-6">
+      <div class="card-header"><div class="card-title">📈 Tren Log Aktivitas (7 Hari)</div></div>
+      <div class="card-body"><canvas id="chart-tren" height="120"></canvas></div>
+    </div>`;
+}
+
+function initCharts() {
+  if (typeof Chart === 'undefined') {
+    document.getElementById('chart-staf')?.closest('.card').insertAdjacentHTML('beforeend',
+      '<p style="text-align:center;color:var(--text-muted);font-size:12px;">Chart.js tidak tersedia. Periksa koneksi internet.</p>');
+    return;
+  }
+  Chart.defaults.color = '#a0a8b8';
+  Chart.defaults.borderColor = 'rgba(255,255,255,0.07)';
+
+  const today   = DB.today();
+  const staff   = DB.getActiveStaff();
+  const allLogs = DB.getLogs({});
+  const todayLogs = allLogs.filter(l => l.tanggal === today);
+
+  // Chart 1: Bar — log per staf hari ini
+  const staffNames = staff.map(s => s.nama.split(' ')[0]);
+  const staffCounts = staff.map(s => todayLogs.filter(l => l.staff_id === s.id).length);
+  const ctx1 = document.getElementById('chart-staf')?.getContext('2d');
+  if (ctx1) new Chart(ctx1, {
+    type: 'bar',
+    data: {
+      labels: staffNames,
+      datasets: [{ label: 'Jumlah Log', data: staffCounts,
+        backgroundColor: 'rgba(200,160,60,0.7)', borderColor: '#c8a03c', borderWidth: 1, borderRadius: 6 }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { stepSize: 1 } } } }
+  });
+
+  // Chart 2: Doughnut — distribusi kategori hari ini
+  const catMap = {};
+  todayLogs.forEach(l => {
+    const c = DB.getCategory(l.kategori);
+    catMap[c.name] = (catMap[c.name] || 0) + 1;
+  });
+  const catLabels = Object.keys(catMap);
+  const catData   = Object.values(catMap);
+  const ctx2 = document.getElementById('chart-kategori')?.getContext('2d');
+  if (ctx2) new Chart(ctx2, {
+    type: 'doughnut',
+    data: {
+      labels: catLabels.length ? catLabels : ['Belum ada data'],
+      datasets: [{ data: catData.length ? catData : [1],
+        backgroundColor: ['#c8a03c','#4a90d9','#2ecc71','#e74c3c','#9b59b6','#f39c12','#1abc9c','#e67e22'],
+        borderWidth: 2, borderColor: '#0d1117' }]
+    },
+    options: { plugins: { legend: { position: 'right', labels: { boxWidth: 12, font: { size: 11 } } } }, cutout: '65%' }
+  });
+
+  // Chart 3: Line — tren log 7 hari
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - (6 - i));
+    return d.toISOString().slice(0, 10);
+  });
+  const trendData = last7.map(d => allLogs.filter(l => l.tanggal === d).length);
+  const trendLabels = last7.map(d => { const dt = new Date(d+'T00:00:00'); return `${dt.getDate()}/${dt.getMonth()+1}`; });
+  const ctx3 = document.getElementById('chart-tren')?.getContext('2d');
+  if (ctx3) new Chart(ctx3, {
+    type: 'line',
+    data: {
+      labels: trendLabels,
+      datasets: [{ label: 'Jumlah Log', data: trendData,
+        borderColor: '#c8a03c', backgroundColor: 'rgba(200,160,60,0.15)',
+        tension: 0.4, fill: true, pointRadius: 5, pointBackgroundColor: '#c8a03c' }]
+    },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } }
+  });
+}
+
+// ============================================================
+//  FITUR 3 — PENILAIAN STAF (ADMIN + STAFF)
+// ============================================================
+function buildPenilaianView() {
+  const today = DB.today();
+  const staff = DB.getActiveStaff();
+
+  const rows = staff.map(s => {
+    const nilai = DB.getPenilaianStafHari(s.id, today);
+    const stars = nilai ? '⭐'.repeat(nilai.nilai) + `<span style="color:var(--gold-light);margin-left:4px;">${nilai.nilai}/5</span>` : '—';
+    return `
+      <tr>
+        <td><div class="name-cell">
+          <div class="av av-sm">${DB.getInitials(s.nama)}</div>
+          <div class="name-cell-text"><div class="name-cell-main">${s.nama}</div><div class="name-cell-sub">${s.jabatan}</div></div>
+        </div></td>
+        <td>${stars}</td>
+        <td style="max-width:200px;color:var(--text-muted);font-size:12px;">${nilai?.komentar || '—'}</td>
+        <td><button class="btn btn-gold btn-sm" onclick="openModalPenilaian('${s.id}', '${s.nama.replace(/'/g,'&apos;')}')">⭐ Beri Nilai</button></td>
+      </tr>`;
+  }).join('');
+
+  // Riwayat 7 hari
+  const last7 = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today + 'T00:00:00'); d.setDate(d.getDate() - i);
+    return d.toISOString().slice(0, 10);
+  });
+  const riwayat = DB.getPenilaian({});
+  const riwayatRows = riwayat.filter(p => last7.includes(p.tanggal)).map(p => `
+    <tr>
+      <td>${p.staff_nama}</td>
+      <td>${formatDateLong(p.tanggal)}</td>
+      <td>${'⭐'.repeat(p.nilai)} <span style="color:var(--gold-light);">${p.nilai}/5</span></td>
+      <td style="font-size:12px;color:var(--text-muted);">${p.komentar || '—'}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">⭐ Penilaian Kinerja Staf</h2>
+      <p class="page-sub">Beri penilaian harian 1–5 bintang untuk setiap staf · ${formatDateLong(today)}</p>
+    </div>
+
+    <div class="card mb-6">
+      <div class="card-header"><div class="card-title">👥 Nilai Staf Hari Ini</div></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Nama Staf</th><th>Nilai Hari Ini</th><th>Komentar</th><th>Aksi</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">📅 Riwayat Penilaian (7 Hari)</div></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Staf</th><th>Tanggal</th><th>Nilai</th><th>Komentar</th></tr></thead>
+          <tbody>${riwayatRows || '<tr><td colspan="4" style="text-align:center;padding:24px;color:var(--text-muted);">Belum ada riwayat.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function openModalPenilaian(staffId, staffNama) {
+  const today = DB.today();
+  const existing = DB.getPenilaianStafHari(staffId, today);
+  const modalHtml = `
+    <div class="modal-box">
+      <div class="modal-hd">
+        <h3 class="modal-title">⭐ Beri Nilai — ${staffNama}</h3>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body" style="text-align:left;">
+        <div class="form-group">
+          <label class="form-label">Tanggal</label>
+          <input type="date" class="form-control" id="m-nilai-tgl" value="${today}" max="${today}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Nilai (1–5 Bintang) <span class="req">*</span></label>
+          <div class="star-picker" id="star-picker">
+            ${[1,2,3,4,5].map(n => `
+              <span class="star-btn ${existing && existing.nilai >= n ? 'active' : ''}" 
+                data-val="${n}" onclick="pickStar(${n})">⭐</span>
+            `).join('')}
+          </div>
+          <input type="hidden" id="m-nilai-val" value="${existing?.nilai || 0}">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Komentar (Opsional)</label>
+          <textarea class="form-control" id="m-nilai-ket" rows="3" placeholder="Catatan kinerja staf hari ini...">${existing?.komentar || ''}</textarea>
+        </div>
+      </div>
+      <div class="modal-footer" style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+        <button class="btn btn-gold" onclick="simpanNilai('${staffId}', '${staffNama.replace(/'/g,'&apos;')}')">💾 Simpan Nilai</button>
+      </div>
+    </div>`;
+  openModal(modalHtml);
+}
+
+function pickStar(val) {
+  document.getElementById('m-nilai-val').value = val;
+  qsa('.star-btn').forEach((s, i) => s.classList.toggle('active', i < val));
+}
+
+async function simpanNilai(staffId, staffNama) {
+  const tgl   = document.getElementById('m-nilai-tgl')?.value;
+  const nilai = parseInt(document.getElementById('m-nilai-val')?.value);
+  const ket   = document.getElementById('m-nilai-ket')?.value?.trim();
+  if (!tgl || !nilai || nilai < 1 || nilai > 5) { toast('Pilih nilai bintang terlebih dahulu.', 'warning'); return; }
+  await DB.addPenilaian({ staff_id: staffId, staff_nama: staffNama, tanggal: tgl, nilai, komentar: ket });
+  toast('✅ Nilai berhasil disimpan!', 'success');
+  closeModal();
+  renderAdminView('penilaian');
+}
+
+function buildNilaiSaya() {
+  const riwayat = DB.getPenilaian({ staffId: App.user.id });
+  const avg = riwayat.length > 0 ? (riwayat.reduce((s, p) => s + p.nilai, 0) / riwayat.length).toFixed(1) : null;
+  const rows = riwayat.map(p => `
+    <tr>
+      <td>${formatDateLong(p.tanggal)}</td>
+      <td>${'⭐'.repeat(p.nilai)} <span style="color:var(--gold-light);">${p.nilai}/5</span></td>
+      <td style="font-size:12px;color:var(--text-muted);">${p.komentar || '—'}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">⭐ Riwayat Nilai Saya</h2>
+      <p class="page-sub">Penilaian kinerja harian dari Manager Akademik</p>
+    </div>
+    ${avg ? `<div class="banner banner-info mb-4">🏆 Rata-rata nilai Anda: <strong>${avg} / 5 ⭐</strong> dari ${riwayat.length} penilaian.</div>` : ''}
+    <div class="card">
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Tanggal</th><th>Nilai</th><th>Komentar Manager</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted);">Belum ada penilaian.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+//  FITUR 4 — JADWAL PIKET (ADMIN + STAFF)
+// ============================================================
+const AREA_PIKET = ['Asrama Putra', 'Asrama Putri', 'Kelas', 'Lapangan', 'Kantin', 'Lobby', 'Toilet Umum'];
+
+function buildJadwalPiketView() {
+  const today = DB.today();
+  const staff = DB.getActiveStaff();
+
+  // Bangun tabel minggu ini
+  const ref = new Date(today + 'T00:00:00');
+  const day = ref.getDay();
+  const monday = new Date(ref); monday.setDate(ref.getDate() - (day === 0 ? 6 : day - 1));
+  const week = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(monday); d.setDate(monday.getDate() + i);
+    return d.toISOString().slice(0, 10);
+  });
+
+  const piketMinggu = DB.getPiket({ mingguOf: today });
+
+  const weekCols = week.map(d => {
+    const dt = new Date(d + 'T00:00:00');
+    const isToday = d === today;
+    const pList = piketMinggu.filter(p => p.tanggal === d);
+    return `
+      <td style="vertical-align:top;min-width:120px;padding:8px;background:${isToday ? 'rgba(200,160,60,0.08)' : 'transparent'};border:1px solid var(--border-sm);">
+        <div style="font-size:11px;font-weight:700;color:${isToday ? 'var(--gold-light)' : 'var(--text-muted)'};margin-bottom:6px;">${DAYS_ID[dt.getDay()].slice(0,3)}, ${dt.getDate()}/${dt.getMonth()+1}</div>
+        ${pList.length === 0 ? '<div style="font-size:11px;color:var(--text-muted);">—</div>' :
+          pList.map(p => `
+            <div style="font-size:11px;background:rgba(200,160,60,0.12);border-radius:4px;padding:4px 6px;margin-bottom:4px;display:flex;justify-content:space-between;align-items:center;">
+              <span>${p.staff_nama.split(' ')[0]}<br><em style="color:var(--text-muted);">${p.area}</em></span>
+              <button onclick="hapusPiket('${p.id}')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:12px;">✕</button>
+            </div>`).join('')
+        }
+      </td>`;
+  }).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">🗓️ Jadwal Piket Staf</h2>
+      <p class="page-sub">Kelola jadwal piket harian staf akademik</p>
+    </div>
+
+    <div class="card mb-6">
+      <div class="card-header"><div class="card-title">➕ Tambah Jadwal Piket</div></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;align-items:end;">
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Staf <span class="req">*</span></label>
+            <select class="form-control" id="piket-staff">
+              <option value="">— Pilih Staf —</option>
+              ${staff.map(s => `<option value="${s.id}|${s.nama}">${s.nama}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Tanggal <span class="req">*</span></label>
+            <input type="date" class="form-control" id="piket-tgl" value="${today}">
+          </div>
+          <div class="form-group" style="margin:0;">
+            <label class="form-label">Area Piket <span class="req">*</span></label>
+            <select class="form-control" id="piket-area">
+              ${AREA_PIKET.map(a => `<option value="${a}">${a}</option>`).join('')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group mt-4">
+          <label class="form-label">Catatan (Opsional)</label>
+          <input type="text" class="form-control" id="piket-catatan" placeholder="Contoh: Fokus kebersihan area masuk">
+        </div>
+        <button class="btn btn-primary mt-2" onclick="tambahPiket()">🗓️ Tambah Jadwal</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">📅 Kalender Minggu Ini</div></div>
+      <div class="card-body" style="overflow-x:auto;">
+        <table style="border-collapse:collapse;width:100%;"><tbody><tr>${weekCols}</tr></tbody></table>
+      </div>
+    </div>`;
+}
+
+async function tambahPiket() {
+  const staffVal = document.getElementById('piket-staff')?.value;
+  const tgl      = document.getElementById('piket-tgl')?.value;
+  const area     = document.getElementById('piket-area')?.value;
+  const catatan  = document.getElementById('piket-catatan')?.value?.trim();
+  if (!staffVal || !tgl || !area) { toast('Staf, tanggal, dan area wajib diisi.', 'warning'); return; }
+  const [staffId, staffNama] = staffVal.split('|');
+  await DB.addPiket({ staff_id: staffId, staff_nama: staffNama, tanggal: tgl, area, catatan });
+  toast('✅ Jadwal piket berhasil ditambahkan!', 'success');
+  renderAdminView('jadwal-piket');
+}
+
+async function hapusPiket(id) {
+  if (!confirm('Hapus jadwal piket ini?')) return;
+  await DB.deletePiket(id);
+  toast('Jadwal piket dihapus.', 'info');
+  renderAdminView('jadwal-piket');
+}
+
+function buildPiketSaya() {
+  const today = DB.today();
+  const piketSaya = DB.getPiket({ staffId: App.user.id });
+  const piketHariIni = piketSaya.filter(p => p.tanggal === today);
+  const piketMendatang = piketSaya.filter(p => p.tanggal >= today).sort((a, b) => a.tanggal.localeCompare(b.tanggal));
+
+  const rows = piketMendatang.map(p => `
+    <tr style="${p.tanggal === today ? 'background:rgba(200,160,60,0.08);' : ''}">
+      <td>${formatDateLong(p.tanggal)} ${p.tanggal === today ? '<span class="badge badge-warning" style="margin-left:6px;">Hari Ini!</span>' : ''}</td>
+      <td><span class="badge badge-info">${p.area}</span></td>
+      <td style="font-size:12px;color:var(--text-muted);">${p.catatan || '—'}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">🗓️ Jadwal Piket Saya</h2>
+      <p class="page-sub">Jadwal piket yang ditugaskan oleh Manager Akademik</p>
+    </div>
+    ${piketHariIni.length > 0 ? `
+      <div class="banner banner-warning mb-4">🔔 <strong>Anda piket hari ini!</strong> Area: ${piketHariIni.map(p => p.area).join(', ')}</div>` : ''}
+    <div class="card">
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Tanggal</th><th>Area Piket</th><th>Catatan</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="3" style="text-align:center;padding:32px;color:var(--text-muted);">Tidak ada jadwal piket mendatang.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+// ============================================================
+//  FITUR 5 — IZIN / CUTI (ADMIN + STAFF)
+// ============================================================
+const JENIS_IZIN = ['Izin', 'Cuti', 'Sakit', 'Dinas Luar'];
+
+function buildIzinSaya() {
+  const today = DB.today();
+  const izinList = DB.getIzin({ staffId: App.user.id });
+
+  const statusBadge = s =>
+    s === 'Disetujui' ? '<span class="badge badge-success">✅ Disetujui</span>' :
+    s === 'Ditolak'   ? '<span class="badge badge-danger">❌ Ditolak</span>' :
+                        '<span class="badge badge-warning">⏳ Menunggu</span>';
+
+  const rows = izinList.map(i => `
+    <tr>
+      <td><span class="badge badge-info">${i.jenis}</span></td>
+      <td>${formatDateLong(i.tgl_mulai)}${i.tgl_mulai !== i.tgl_selesai ? ' – ' + formatDateLong(i.tgl_selesai) : ''}</td>
+      <td style="font-size:12px;max-width:200px;">${i.alasan}</td>
+      <td>${statusBadge(i.status)}</td>
+      <td style="font-size:12px;color:var(--text-muted);">${i.komentar_admin || '—'}</td>
+    </tr>`).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">📝 Pengajuan Izin / Cuti</h2>
+      <p class="page-sub">Ajukan permohonan izin atau cuti untuk disetujui Manager Akademik</p>
+    </div>
+
+    <div class="card mb-6">
+      <div class="card-header"><div class="card-title">➕ Ajukan Permohonan Baru</div></div>
+      <div class="card-body">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+          <div class="form-group">
+            <label class="form-label">Jenis <span class="req">*</span></label>
+            <select class="form-control" id="izin-jenis">
+              ${JENIS_IZIN.map(j => `<option value="${j}">${j}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Mulai <span class="req">*</span></label>
+            <input type="date" class="form-control" id="izin-mulai" value="${today}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Selesai <span class="req">*</span></label>
+            <input type="date" class="form-control" id="izin-selesai" value="${today}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Alasan <span class="req">*</span></label>
+          <textarea class="form-control" id="izin-alasan" rows="3" placeholder="Jelaskan alasan izin/cuti Anda secara singkat..."></textarea>
+        </div>
+        <button class="btn btn-primary" onclick="ajukanIzin()">📤 Kirim Permohonan</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">📋 Riwayat Permohonan Saya</div></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Jenis</th><th>Periode</th><th>Alasan</th><th>Status</th><th>Komentar Admin</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="5" style="text-align:center;padding:32px;color:var(--text-muted);">Belum ada pengajuan.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function ajukanIzin() {
+  const jenis    = document.getElementById('izin-jenis')?.value;
+  const mulai    = document.getElementById('izin-mulai')?.value;
+  const selesai  = document.getElementById('izin-selesai')?.value;
+  const alasan   = document.getElementById('izin-alasan')?.value?.trim();
+  if (!jenis || !mulai || !selesai || !alasan) { toast('Semua kolom wajib diisi.', 'warning'); return; }
+  if (selesai < mulai) { toast('Tanggal selesai harus sama atau setelah tanggal mulai.', 'warning'); return; }
+  await DB.addIzin({ staff_id: App.user.id, staff_nama: App.user.nama, jenis, tgl_mulai: mulai, tgl_selesai: selesai, alasan });
+  toast('✅ Permohonan izin berhasil dikirim!', 'success');
+  renderStaffView('izin-saya');
+}
+
+function buildIzinAdminView() {
+  const izinList = DB.getIzin({});
+  const pending  = izinList.filter(i => i.status === 'Menunggu').length;
+
+  const statusBadge = s =>
+    s === 'Disetujui' ? '<span class="badge badge-success">✅ Disetujui</span>' :
+    s === 'Ditolak'   ? '<span class="badge badge-danger">❌ Ditolak</span>' :
+                        '<span class="badge badge-warning">⏳ Menunggu</span>';
+
+  const rows = izinList.map(i => `
+    <tr>
+      <td><div class="name-cell">
+        <div class="av av-sm">${DB.getInitials(i.staff_nama)}</div>
+        <div class="name-cell-text"><div class="name-cell-main">${i.staff_nama}</div></div>
+      </div></td>
+      <td><span class="badge badge-info">${i.jenis}</span></td>
+      <td>${formatDateLong(i.tgl_mulai)}${i.tgl_mulai !== i.tgl_selesai ? '<br><span style="font-size:11px;color:var(--text-muted);">s/d ' + formatDateLong(i.tgl_selesai) + '</span>' : ''}</td>
+      <td style="font-size:12px;max-width:180px;">${i.alasan}</td>
+      <td>${statusBadge(i.status)}</td>
+      <td>
+        ${i.status === 'Menunggu' ? `
+          <div style="display:flex;gap:6px;">
+            <button class="btn btn-success btn-sm" onclick="prosesIzin('${i.id}','Disetujui')">✅</button>
+            <button class="btn btn-danger btn-sm" onclick="prosesIzin('${i.id}','Ditolak')">❌</button>
+          </div>` : `<span style="font-size:12px;color:var(--text-muted);">${i.komentar_admin || '—'}</span>`
+        }
+      </td>
+    </tr>`).join('');
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">📋 Permohonan Izin / Cuti Staf</h2>
+      <p class="page-sub">Setujui atau tolak permohonan izin dari staf akademik</p>
+    </div>
+    ${pending > 0 ? `<div class="banner banner-warning mb-4">⏳ Ada <strong>${pending} permohonan</strong> yang menunggu persetujuan Anda.</div>` : ''}
+    <div class="card">
+      <div class="card-header"><div class="card-title">📋 Semua Permohonan</div><span class="badge badge-ghost">${izinList.length} total</span></div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Staf</th><th>Jenis</th><th>Periode</th><th>Alasan</th><th>Status</th><th>Aksi / Komentar</th></tr></thead>
+          <tbody>${rows || '<tr><td colspan="6" style="text-align:center;padding:32px;color:var(--text-muted);">Belum ada permohonan.</td></tr>'}</tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+async function prosesIzin(id, status) {
+  let komentar = '';
+  if (status === 'Ditolak') {
+    komentar = prompt('Berikan alasan penolakan (opsional):') || '';
+  } else {
+    komentar = prompt('Tambah komentar persetujuan (opsional):') || 'Disetujui oleh Manager Akademik.';
+  }
+  await DB.updateIzinStatus(id, status, komentar);
+  toast(`✅ Permohonan berhasil ${status === 'Disetujui' ? 'disetujui' : 'ditolak'}!`, status === 'Disetujui' ? 'success' : 'danger');
+  renderAdminView('permohonan-izin');
+}
+
+// ============================================================
+//  FITUR 6 — EXPORT LAPORAN (EXCEL & PDF)
+// ============================================================
+function exportLogsToExcel(filterParams) {
+  if (typeof XLSX === 'undefined') { toast('Library XLSX tidak tersedia. Periksa koneksi internet.', 'danger'); return; }
+  const logs = DB.getLogs(filterParams || App.logFilter || {});
+  if (logs.length === 0) { toast('Tidak ada data untuk di-export.', 'warning'); return; }
+
+  const wsData = [
+    ['No', 'Tanggal', 'Jam', 'Nama Staf', 'Jabatan', 'Kategori', 'Deskripsi']
+  ];
+  logs.forEach((l, i) => {
+    const cat = DB.getCategory(l.kategori);
+    const s   = DB.getStaffById(l.staff_id);
+    let desc  = l.deskripsi || '';
+    if (desc.startsWith('{')) try { const d = JSON.parse(desc); desc = `[Checklist] ${d.metadata?.subject || ''} ${d.metadata?.pic_dosen || ''}`.trim(); } catch(e) {}
+    wsData.push([i + 1, l.tanggal, l.jam, l.staff_nama, s?.jabatan || '—', cat.name, desc]);
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [{ wch: 4 }, { wch: 12 }, { wch: 8 }, { wch: 22 }, { wch: 20 }, { wch: 28 }, { wch: 50 }];
+  XLSX.utils.book_append_sheet(wb, ws, 'Log Aktivitas');
+  XLSX.writeFile(wb, `AkademikAPP_Log_${DB.today()}.xlsx`);
+  toast('📥 File Excel berhasil diunduh!', 'success');
+}
+
+function exportLogsToPDF(filterParams) {
+  if (typeof window.jspdf === 'undefined' && typeof jsPDF === 'undefined') {
+    toast('Library jsPDF tidak tersedia. Periksa koneksi internet.', 'danger'); return;
+  }
+  const logs = DB.getLogs(filterParams || App.logFilter || {});
+  if (logs.length === 0) { toast('Tidak ada data untuk di-export.', 'warning'); return; }
+
+  const { jsPDF: JPDF } = window.jspdf || { jsPDF };
+  const doc = new JPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+
+  doc.setFontSize(14);
+  doc.setTextColor(200, 160, 60);
+  doc.text('TIA AkademikAPP — Log Aktivitas Staf', 14, 16);
+  doc.setFontSize(9);
+  doc.setTextColor(120, 130, 150);
+  doc.text(`Triesakti Institute of Airlines · Dicetak: ${new Date().toLocaleDateString('id-ID')}`, 14, 22);
+
+  const head = [['No', 'Tanggal', 'Jam', 'Nama Staf', 'Kategori', 'Deskripsi']];
+  const body = logs.map((l, i) => {
+    const cat = DB.getCategory(l.kategori);
+    let desc = l.deskripsi || '';
+    if (desc.startsWith('{')) try { const d = JSON.parse(desc); desc = `[Checklist] ${d.metadata?.subject || ''}`.trim(); } catch(e) {}
+    return [i + 1, l.tanggal, l.jam, l.staff_nama, cat.name, desc.slice(0, 80)];
+  });
+
+  doc.autoTable({
+    head, body, startY: 28, styles: { fontSize: 8, cellPadding: 3 },
+    headStyles: { fillColor: [200, 160, 60], textColor: 255, fontStyle: 'bold' },
+    alternateRowStyles: { fillColor: [245, 245, 245] },
+    columnStyles: { 0: { cellWidth: 8 }, 1: { cellWidth: 24 }, 2: { cellWidth: 14 }, 3: { cellWidth: 40 }, 4: { cellWidth: 45 }, 5: { cellWidth: 'auto' } }
+  });
+
+  doc.save(`AkademikAPP_Log_${DB.today()}.pdf`);
+  toast('📄 File PDF berhasil diunduh!', 'success');
+}
+
+function exportRekapToExcel() {
+  if (typeof XLSX === 'undefined') { toast('Library XLSX tidak tersedia.', 'danger'); return; }
+  const tanggal = App.rekapFilter?.tanggal || DB.today();
+  const sesi    = App.rekapFilter?.sesi || '';
+  const absen   = DB.getAbsenMentoring({ tanggal, ...(sesi ? { sesi } : {}) });
+  if (absen.length === 0) { toast('Tidak ada data absen untuk di-export.', 'warning'); return; }
+
+  const wsData = [['No', 'Tanggal', 'Sesi', 'Nama Staf Mentor', 'NIM Siswa', 'Nama Siswa', 'Status', 'Catatan']];
+  absen.forEach((a, i) => wsData.push([i+1, a.tanggal, a.sesi, a.staff_nama, a.siswa_nim, a.siswa_nama, a.status, a.catatan || '']));
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  ws['!cols'] = [{wch:4},{wch:12},{wch:8},{wch:24},{wch:14},{wch:24},{wch:14},{wch:40}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Rekap Absen');
+  XLSX.writeFile(wb, `AkademikAPP_RekapAbsen_${tanggal}.xlsx`);
+  toast('📥 Rekap absen berhasil diunduh!', 'success');
 }

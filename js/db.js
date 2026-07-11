@@ -116,7 +116,12 @@ const DB_KEYS = {
   ABSEN_MENTORING: 'tia_absen_mentoring',
   STAFF_KELAS:     'tia_staff_kelas_assign',
   SISWA_KELAS:     'tia_siswa_kelas_assign',
-  ABSEN_CONFIG:    'tia_absen_config'
+  ABSEN_CONFIG:    'tia_absen_config',
+  // ── Fitur Baru ──
+  PENGUMUMAN:      'tia_pengumuman',
+  PENILAIAN:       'tia_penilaian_staf',
+  PIKET:           'tia_jadwal_piket',
+  IZIN:            'tia_izin_staf'
 };
 
 // ===========================
@@ -245,7 +250,12 @@ const DB = {
     absenMentoring: [],
     staffKelas: [],
     siswaKelas: [],
-    absenConfig: []
+    absenConfig: [],
+    // ── Fitur Baru ──
+    pengumuman: [],
+    penilaian: [],
+    piket: [],
+    izin: []
   },
 
   /** Initialize cache with local data & seed default staff once */
@@ -259,6 +269,10 @@ const DB = {
     this.cache.staffKelas     = JSON.parse(localStorage.getItem(DB_KEYS.STAFF_KELAS) || '[]');
     this.cache.siswaKelas     = JSON.parse(localStorage.getItem(DB_KEYS.SISWA_KELAS) || '[]');
     this.cache.absenConfig    = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_CONFIG) || '[]');
+    this.cache.pengumuman     = JSON.parse(localStorage.getItem(DB_KEYS.PENGUMUMAN) || '[]');
+    this.cache.penilaian      = JSON.parse(localStorage.getItem(DB_KEYS.PENILAIAN) || '[]');
+    this.cache.piket          = JSON.parse(localStorage.getItem(DB_KEYS.PIKET) || '[]');
+    this.cache.izin           = JSON.parse(localStorage.getItem(DB_KEYS.IZIN) || '[]');
 
     if (this.cache.absenConfig.length === 0) {
       KELAS_MENTORING.forEach(km => {
@@ -568,6 +582,78 @@ const DB = {
         this.cache.absenConfig = Array.from(cloudCfgMap.values());
       }
 
+      // 10. Sync Pengumuman
+      const { data: cloudPengumuman } = await supabaseClient.from('tia_pengumuman').select('*').catch(() => ({ data: null }));
+      if (cloudPengumuman) {
+        const localPengumuman = JSON.parse(localStorage.getItem(DB_KEYS.PENGUMUMAN) || '[]');
+        const cpMap = new Map(cloudPengumuman.map(p => [p.id, p]));
+        const unsyncedP = localPengumuman.filter(p => p._unsynced);
+        for (const p of unsyncedP) {
+          try {
+            const clean = { ...p }; delete clean._unsynced;
+            const { error } = await supabaseClient.from('tia_pengumuman').upsert([clean]);
+            if (!error) { delete p._unsynced; cpMap.set(p.id, clean); }
+          } catch(e) { cpMap.set(p.id, p); }
+        }
+        this.cache.pengumuman = Array.from(cpMap.values());
+      } else {
+        this.cache.pengumuman = JSON.parse(localStorage.getItem(DB_KEYS.PENGUMUMAN) || '[]');
+      }
+
+      // 11. Sync Penilaian Staf
+      const { data: cloudPenilaian } = await supabaseClient.from('tia_penilaian_staf').select('*').catch(() => ({ data: null }));
+      if (cloudPenilaian) {
+        const localPenilaian = JSON.parse(localStorage.getItem(DB_KEYS.PENILAIAN) || '[]');
+        const penMap = new Map(cloudPenilaian.map(p => [p.id, p]));
+        const unsyncedPen = localPenilaian.filter(p => p._unsynced);
+        for (const p of unsyncedPen) {
+          try {
+            const clean = { ...p }; delete clean._unsynced;
+            const { error } = await supabaseClient.from('tia_penilaian_staf').upsert([clean]);
+            if (!error) { delete p._unsynced; penMap.set(p.id, clean); }
+          } catch(e) { penMap.set(p.id, p); }
+        }
+        this.cache.penilaian = Array.from(penMap.values());
+      } else {
+        this.cache.penilaian = JSON.parse(localStorage.getItem(DB_KEYS.PENILAIAN) || '[]');
+      }
+
+      // 12. Sync Jadwal Piket
+      const { data: cloudPiket } = await supabaseClient.from('tia_jadwal_piket').select('*').catch(() => ({ data: null }));
+      if (cloudPiket) {
+        const localPiket = JSON.parse(localStorage.getItem(DB_KEYS.PIKET) || '[]');
+        const pikMap = new Map(cloudPiket.map(p => [p.id, p]));
+        const unsyncedPik = localPiket.filter(p => p._unsynced);
+        for (const p of unsyncedPik) {
+          try {
+            const clean = { ...p }; delete clean._unsynced;
+            const { error } = await supabaseClient.from('tia_jadwal_piket').upsert([clean]);
+            if (!error) { delete p._unsynced; pikMap.set(p.id, clean); }
+          } catch(e) { pikMap.set(p.id, p); }
+        }
+        this.cache.piket = Array.from(pikMap.values());
+      } else {
+        this.cache.piket = JSON.parse(localStorage.getItem(DB_KEYS.PIKET) || '[]');
+      }
+
+      // 13. Sync Izin Staf
+      const { data: cloudIzin } = await supabaseClient.from('tia_izin_staf').select('*').catch(() => ({ data: null }));
+      if (cloudIzin) {
+        const localIzin = JSON.parse(localStorage.getItem(DB_KEYS.IZIN) || '[]');
+        const iznMap = new Map(cloudIzin.map(i => [i.id, i]));
+        const unsyncedIzin = localIzin.filter(i => i._unsynced);
+        for (const i of unsyncedIzin) {
+          try {
+            const clean = { ...i }; delete clean._unsynced;
+            const { error } = await supabaseClient.from('tia_izin_staf').upsert([clean]);
+            if (!error) { delete i._unsynced; iznMap.set(i.id, clean); }
+          } catch(e) { iznMap.set(i.id, i); }
+        }
+        this.cache.izin = Array.from(iznMap.values());
+      } else {
+        this.cache.izin = JSON.parse(localStorage.getItem(DB_KEYS.IZIN) || '[]');
+      }
+
       // Update backup local storage
       localStorage.setItem(DB_KEYS.STAFF,           JSON.stringify(this.cache.staff));
       localStorage.setItem(DB_KEYS.LOGS,            JSON.stringify(this.cache.logs));
@@ -578,6 +664,10 @@ const DB = {
       localStorage.setItem(DB_KEYS.STAFF_KELAS,     JSON.stringify(this.cache.staffKelas));
       localStorage.setItem(DB_KEYS.SISWA_KELAS,     JSON.stringify(this.cache.siswaKelas));
       localStorage.setItem(DB_KEYS.ABSEN_CONFIG,    JSON.stringify(this.cache.absenConfig));
+      localStorage.setItem(DB_KEYS.PENGUMUMAN,      JSON.stringify(this.cache.pengumuman));
+      localStorage.setItem(DB_KEYS.PENILAIAN,       JSON.stringify(this.cache.penilaian));
+      localStorage.setItem(DB_KEYS.PIKET,           JSON.stringify(this.cache.piket));
+      localStorage.setItem(DB_KEYS.IZIN,            JSON.stringify(this.cache.izin));
 
       console.log("Database Supabase berhasil disinkronisasi!");
       return true; // Successfully synced
@@ -1159,6 +1249,185 @@ const DB = {
       list[i]._unsynced = true;
       localStorage.setItem(DB_KEYS.ABSEN_CONFIG, JSON.stringify(list));
     }
+  },
+
+  // ── PENGUMUMAN CRUD ───────────────────────────────────
+
+  getPengumuman() {
+    const now = new Date().toISOString();
+    return this.cache.pengumuman
+      .filter(p => !p.expired_at || p.expired_at >= now)
+      .sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  getPengumumanAll() {
+    return [...this.cache.pengumuman].sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  async addPengumuman({ judul, isi, tipe, dibuat_oleh, expired_at }) {
+    const rec = {
+      id: 'PNG' + Date.now(),
+      judul, isi, tipe: tipe || 'info', dibuat_oleh,
+      created_at: new Date().toISOString(),
+      expired_at: expired_at || null,
+      _unsynced: true
+    };
+    this.cache.pengumuman.unshift(rec);
+    localStorage.setItem(DB_KEYS.PENGUMUMAN, JSON.stringify(this.cache.pengumuman));
+    if (supabaseClient) {
+      try {
+        const clean = { ...rec }; delete clean._unsynced;
+        await supabaseClient.from('tia_pengumuman').insert([clean]);
+        delete rec._unsynced;
+        localStorage.setItem(DB_KEYS.PENGUMUMAN, JSON.stringify(this.cache.pengumuman));
+      } catch(e) { console.warn('Cloud pengumuman failed:', e); }
+    }
+    return rec;
+  },
+
+  async deletePengumuman(id) {
+    this.cache.pengumuman = this.cache.pengumuman.filter(p => p.id !== id);
+    localStorage.setItem(DB_KEYS.PENGUMUMAN, JSON.stringify(this.cache.pengumuman));
+    if (supabaseClient) {
+      try { await supabaseClient.from('tia_pengumuman').delete().eq('id', id); } catch(e) {}
+    }
+  },
+
+  // ── PENILAIAN STAF CRUD ───────────────────────────────
+
+  getPenilaian(filter = {}) {
+    let arr = [...this.cache.penilaian];
+    if (filter.staffId) arr = arr.filter(p => p.staff_id === filter.staffId);
+    if (filter.tanggal) arr = arr.filter(p => p.tanggal === filter.tanggal);
+    return arr.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  getPenilaianStafHari(staffId, tanggal) {
+    return this.cache.penilaian.find(p => p.staff_id === staffId && p.tanggal === tanggal) || null;
+  },
+
+  async addPenilaian({ staff_id, staff_nama, tanggal, nilai, komentar }) {
+    // Hapus penilaian lama untuk staf+hari yang sama (upsert)
+    this.cache.penilaian = this.cache.penilaian.filter(p => !(p.staff_id === staff_id && p.tanggal === tanggal));
+    const rec = {
+      id: 'PEN' + Date.now(),
+      staff_id, staff_nama, tanggal,
+      nilai: parseInt(nilai), komentar: komentar || '',
+      created_at: new Date().toISOString(),
+      _unsynced: true
+    };
+    this.cache.penilaian.push(rec);
+    localStorage.setItem(DB_KEYS.PENILAIAN, JSON.stringify(this.cache.penilaian));
+    if (supabaseClient) {
+      try {
+        // Hapus record lama di cloud juga
+        await supabaseClient.from('tia_penilaian_staf').delete().eq('staff_id', staff_id).eq('tanggal', tanggal);
+        const clean = { ...rec }; delete clean._unsynced;
+        await supabaseClient.from('tia_penilaian_staf').insert([clean]);
+        delete rec._unsynced;
+        localStorage.setItem(DB_KEYS.PENILAIAN, JSON.stringify(this.cache.penilaian));
+      } catch(e) { console.warn('Cloud penilaian failed:', e); }
+    }
+    return rec;
+  },
+
+  // ── JADWAL PIKET CRUD ─────────────────────────────────
+
+  getPiket(filter = {}) {
+    let arr = [...this.cache.piket];
+    if (filter.staffId)  arr = arr.filter(p => p.staff_id === filter.staffId);
+    if (filter.tanggal)  arr = arr.filter(p => p.tanggal === filter.tanggal);
+    if (filter.mingguOf) {
+      // Ambil tanggal-tanggal satu minggu (Senin–Minggu) dari tanggal acuan
+      const ref = new Date(filter.mingguOf + 'T00:00:00');
+      const day = ref.getDay(); // 0=Sun
+      const monday = new Date(ref); monday.setDate(ref.getDate() - (day === 0 ? 6 : day - 1));
+      const dates = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(monday); d.setDate(monday.getDate() + i);
+        return d.toISOString().slice(0, 10);
+      });
+      arr = arr.filter(p => dates.includes(p.tanggal));
+    }
+    return arr.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
+  },
+
+  async addPiket({ staff_id, staff_nama, tanggal, area, catatan }) {
+    const rec = {
+      id: 'PIK' + Date.now(),
+      staff_id, staff_nama, tanggal, area, catatan: catatan || '',
+      created_at: new Date().toISOString(),
+      _unsynced: true
+    };
+    this.cache.piket.push(rec);
+    localStorage.setItem(DB_KEYS.PIKET, JSON.stringify(this.cache.piket));
+    if (supabaseClient) {
+      try {
+        const clean = { ...rec }; delete clean._unsynced;
+        await supabaseClient.from('tia_jadwal_piket').insert([clean]);
+        delete rec._unsynced;
+        localStorage.setItem(DB_KEYS.PIKET, JSON.stringify(this.cache.piket));
+      } catch(e) { console.warn('Cloud piket failed:', e); }
+    }
+    return rec;
+  },
+
+  async deletePiket(id) {
+    this.cache.piket = this.cache.piket.filter(p => p.id !== id);
+    localStorage.setItem(DB_KEYS.PIKET, JSON.stringify(this.cache.piket));
+    if (supabaseClient) {
+      try { await supabaseClient.from('tia_jadwal_piket').delete().eq('id', id); } catch(e) {}
+    }
+  },
+
+  // ── IZIN / CUTI CRUD ─────────────────────────────────
+
+  getIzin(filter = {}) {
+    let arr = [...this.cache.izin];
+    if (filter.staffId) arr = arr.filter(i => i.staff_id === filter.staffId);
+    if (filter.status)  arr = arr.filter(i => i.status === filter.status);
+    return arr.sort((a, b) => b.created_at.localeCompare(a.created_at));
+  },
+
+  async addIzin({ staff_id, staff_nama, jenis, tgl_mulai, tgl_selesai, alasan }) {
+    const rec = {
+      id: 'IZN' + Date.now(),
+      staff_id, staff_nama, jenis, tgl_mulai, tgl_selesai, alasan,
+      status: 'Menunggu', komentar_admin: '',
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      _unsynced: true
+    };
+    this.cache.izin.unshift(rec);
+    localStorage.setItem(DB_KEYS.IZIN, JSON.stringify(this.cache.izin));
+    if (supabaseClient) {
+      try {
+        const clean = { ...rec }; delete clean._unsynced;
+        await supabaseClient.from('tia_izin_staf').insert([clean]);
+        delete rec._unsynced;
+        localStorage.setItem(DB_KEYS.IZIN, JSON.stringify(this.cache.izin));
+      } catch(e) { console.warn('Cloud izin failed:', e); }
+    }
+    return rec;
+  },
+
+  async updateIzinStatus(id, status, komentar_admin) {
+    const rec = this.cache.izin.find(i => i.id === id);
+    if (!rec) return;
+    rec.status = status;
+    rec.komentar_admin = komentar_admin || '';
+    rec.updated_at = new Date().toISOString();
+    rec._unsynced = true;
+    localStorage.setItem(DB_KEYS.IZIN, JSON.stringify(this.cache.izin));
+    if (supabaseClient) {
+      try {
+        await supabaseClient.from('tia_izin_staf').update({
+          status, komentar_admin: komentar_admin || '', updated_at: rec.updated_at
+        }).eq('id', id);
+        delete rec._unsynced;
+        localStorage.setItem(DB_KEYS.IZIN, JSON.stringify(this.cache.izin));
+      } catch(e) { console.warn('Cloud izin update failed:', e); }
+    }
+    return rec;
   },
 
   // ── HELPERS ──────────────────────────────────────────
