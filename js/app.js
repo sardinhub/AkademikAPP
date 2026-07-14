@@ -196,7 +196,8 @@ async function triggerSyncData() {
   if (isOnline) {
     toast('✅ Database berhasil disinkronisasi online!', 'success');
   } else {
-    toast('⚠️ Gagal sinkronisasi. Bekerja offline (LocalStorage).', 'warning');
+    const errDetail = DB._lastSyncError ? ` (${DB._lastSyncError})` : '';
+    toast(`⚠️ Gagal sinkronisasi${errDetail}. Cek Console (F12).`, 'warning', 6000);
   }
 
   // Refresh current view

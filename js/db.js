@@ -303,10 +303,11 @@ const DB = {
     }
     try {
       // 1. Sync Data Staf (local -> cloud)
+      console.log('[SYNC] Step 1: tia_master_staff...');
       const { data: cloudStaff, error: staffErr } = await supabaseClient
         .from('tia_master_staff')
         .select('*');
-      if (staffErr) throw staffErr;
+      if (staffErr) { console.error('[SYNC] ❌ Step 1 gagal:', staffErr.message, staffErr); throw staffErr; }
       
       const cloudStaffMap = new Map(cloudStaff.map(s => [s.id, s]));
 
@@ -342,10 +343,11 @@ const DB = {
       this.cache.staff = Array.from(cloudStaffMap.values());
 
       // 2. Ambil Data Logs dari Cloud
+      console.log('[SYNC] Step 2: tia_log_aktivitas...');
       const { data: cloudLogs, error: logsErr } = await supabaseClient
         .from('tia_log_aktivitas')
         .select('*');
-      if (logsErr) throw logsErr;
+      if (logsErr) { console.error('[SYNC] ❌ Step 2 gagal:', logsErr.message, logsErr); throw logsErr; }
       
       const cloudLogsMap = new Map(cloudLogs.map(l => [l.id, l]));
       const localLogs = JSON.parse(localStorage.getItem(DB_KEYS.LOGS) || '[]');
@@ -390,10 +392,11 @@ const DB = {
       this.cache.logs = Array.from(cloudLogsMap.values());
 
       // 3. Ambil Data Checklist dari Cloud
+      console.log('[SYNC] Step 3: tia_checklist_kelas...');
       const { data: cloudChecklists, error: clErr } = await supabaseClient
         .from('tia_checklist_kelas')
         .select('*');
-      if (clErr) throw clErr;
+      if (clErr) { console.error('[SYNC] ❌ Step 3 gagal:', clErr.message, clErr); throw clErr; }
       
       const cloudClMap = new Map(cloudChecklists.map(c => [c.id, c]));
       const localChecklists = JSON.parse(localStorage.getItem(DB_KEYS.CHECKLIST) || '[]');
@@ -420,10 +423,11 @@ const DB = {
       this.cache.checklists = Array.from(cloudClMap.values());
 
       // 4. Sync Data Siswa (local -> cloud)
+      console.log('[SYNC] Step 4: tia_siswa_aktif...');
       const { data: cloudSiswa, error: siswaErr } = await supabaseClient
         .from('tia_siswa_aktif')
         .select('*');
-      if (siswaErr) throw siswaErr;
+      if (siswaErr) { console.error('[SYNC] ❌ Step 4 gagal:', siswaErr.message, siswaErr); throw siswaErr; }
       
       const cloudSiswaMap = new Map(cloudSiswa.map(s => [s.nim, s]));
       const localSiswa = JSON.parse(localStorage.getItem(DB_KEYS.SISWA) || '[]');
@@ -445,10 +449,11 @@ const DB = {
       this.cache.siswa = Array.from(cloudSiswaMap.values());
 
       // 5. Sync Data Mentor Assign (local -> cloud)
+      console.log('[SYNC] Step 5: tia_mentor_assign...');
       const { data: cloudAssigns, error: assignErr } = await supabaseClient
         .from('tia_mentor_assign')
         .select('*');
-      if (assignErr) throw assignErr;
+      if (assignErr) { console.error('[SYNC] ❌ Step 5 gagal:', assignErr.message, assignErr); throw assignErr; }
       
       const cloudAssignMap = new Map(cloudAssigns.map(a => [a.id, a]));
       const localAssigns = JSON.parse(localStorage.getItem(DB_KEYS.MENTOR_ASSIGN) || '[]');
@@ -470,10 +475,11 @@ const DB = {
       this.cache.mentorAssigns = Array.from(cloudAssignMap.values());
 
       // 6. Sync Absen Mentoring (local → cloud)
+      console.log('[SYNC] Step 6: tia_absen_mentoring...');
       const { data: cloudAbsen, error: absenErr } = await supabaseClient
         .from('tia_absen_mentoring')
         .select('*');
-      if (absenErr) throw absenErr;
+      if (absenErr) { console.error('[SYNC] ❌ Step 6 gagal:', absenErr.message, absenErr); throw absenErr; }
 
       const cloudAbsenMap = new Map(cloudAbsen.map(a => [a.id, a]));
       const localAbsen = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_MENTORING) || '[]');
@@ -495,10 +501,11 @@ const DB = {
       this.cache.absenMentoring = Array.from(cloudAbsenMap.values());
 
       // 7. Sync Data Staff Kelas Assign (local -> cloud)
+      console.log('[SYNC] Step 7: tia_staff_kelas_assign...');
       const { data: cloudStaffKelas, error: skErr } = await supabaseClient
         .from('tia_staff_kelas_assign')
         .select('*');
-      if (skErr) throw skErr;
+      if (skErr) { console.error('[SYNC] ❌ Step 7 gagal:', skErr.message, skErr); throw skErr; }
       
       const cloudSkMap = new Map(cloudStaffKelas.map(k => [k.id, k]));
       const localStaffKelas = JSON.parse(localStorage.getItem(DB_KEYS.STAFF_KELAS) || '[]');
@@ -520,10 +527,11 @@ const DB = {
       this.cache.staffKelas = Array.from(cloudSkMap.values());
 
       // 8. Sync Data Siswa Kelas Assign (local -> cloud)
+      console.log('[SYNC] Step 8: tia_siswa_kelas_assign...');
       const { data: cloudSiswaKelas, error: szkErr } = await supabaseClient
         .from('tia_siswa_kelas_assign')
         .select('*');
-      if (szkErr) throw szkErr;
+      if (szkErr) { console.error('[SYNC] ❌ Step 8 gagal:', szkErr.message, szkErr); throw szkErr; }
       
       const cloudSzkMap = new Map(cloudSiswaKelas.map(k => [k.id, k]));
       const localSiswaKelas = JSON.parse(localStorage.getItem(DB_KEYS.SISWA_KELAS) || '[]');
@@ -545,9 +553,11 @@ const DB = {
       this.cache.siswaKelas = Array.from(cloudSzkMap.values());
 
       // 9. Sync Absen Config (local -> cloud)
+      console.log('[SYNC] Step 9: tia_absen_config...');
       const { data: cloudCfg, error: cfgErr } = await supabaseClient
         .from('tia_absen_config')
         .select('*');
+      if (cfgErr) console.warn('[SYNC] ⚠️ Step 9 (absen_config) tidak tersedia:', cfgErr.message);
       if (!cfgErr && cloudCfg) {
         const cloudCfgMap = new Map(cloudCfg.map(c => [c.kelas_id, c]));
         const localCfg = JSON.parse(localStorage.getItem(DB_KEYS.ABSEN_CONFIG) || '[]');
@@ -584,8 +594,9 @@ const DB = {
       }
 
       // 10. Sync Pengumuman
-      const { data: cloudPengumuman } = await supabaseClient.from('tia_pengumuman').select('*').catch(() => ({ data: null }));
-      if (cloudPengumuman) {
+      console.log('[SYNC] Step 10: tia_pengumuman...');
+      const { data: cloudPengumuman, error: pengErr } = await supabaseClient.from('tia_pengumuman').select('*');
+      if (!pengErr && cloudPengumuman) {
         const localPengumuman = JSON.parse(localStorage.getItem(DB_KEYS.PENGUMUMAN) || '[]');
         const cpMap = new Map(cloudPengumuman.map(p => [p.id, p]));
         const unsyncedP = localPengumuman.filter(p => p._unsynced);
@@ -598,12 +609,14 @@ const DB = {
         }
         this.cache.pengumuman = Array.from(cpMap.values());
       } else {
+        if (pengErr) console.warn('[SYNC] ⚠️ Step 10 (pengumuman):', pengErr.message);
         this.cache.pengumuman = JSON.parse(localStorage.getItem(DB_KEYS.PENGUMUMAN) || '[]');
       }
 
       // 11. Sync Penilaian Staf
-      const { data: cloudPenilaian } = await supabaseClient.from('tia_penilaian_staf').select('*').catch(() => ({ data: null }));
-      if (cloudPenilaian) {
+      console.log('[SYNC] Step 11: tia_penilaian_staf...');
+      const { data: cloudPenilaian, error: penErr } = await supabaseClient.from('tia_penilaian_staf').select('*');
+      if (!penErr && cloudPenilaian) {
         const localPenilaian = JSON.parse(localStorage.getItem(DB_KEYS.PENILAIAN) || '[]');
         const penMap = new Map(cloudPenilaian.map(p => [p.id, p]));
         const unsyncedPen = localPenilaian.filter(p => p._unsynced);
@@ -616,12 +629,14 @@ const DB = {
         }
         this.cache.penilaian = Array.from(penMap.values());
       } else {
+        if (penErr) console.warn('[SYNC] ⚠️ Step 11 (penilaian):', penErr.message);
         this.cache.penilaian = JSON.parse(localStorage.getItem(DB_KEYS.PENILAIAN) || '[]');
       }
 
       // 12. Sync Jadwal Piket
-      const { data: cloudPiket } = await supabaseClient.from('tia_jadwal_piket').select('*').catch(() => ({ data: null }));
-      if (cloudPiket) {
+      console.log('[SYNC] Step 12: tia_jadwal_piket...');
+      const { data: cloudPiket, error: pikErr } = await supabaseClient.from('tia_jadwal_piket').select('*');
+      if (!pikErr && cloudPiket) {
         const localPiket = JSON.parse(localStorage.getItem(DB_KEYS.PIKET) || '[]');
         const pikMap = new Map(cloudPiket.map(p => [p.id, p]));
         const unsyncedPik = localPiket.filter(p => p._unsynced);
@@ -634,12 +649,14 @@ const DB = {
         }
         this.cache.piket = Array.from(pikMap.values());
       } else {
+        if (pikErr) console.warn('[SYNC] ⚠️ Step 12 (piket):', pikErr.message);
         this.cache.piket = JSON.parse(localStorage.getItem(DB_KEYS.PIKET) || '[]');
       }
 
       // 13. Sync Izin Staf
-      const { data: cloudIzin } = await supabaseClient.from('tia_izin_staf').select('*').catch(() => ({ data: null }));
-      if (cloudIzin) {
+      console.log('[SYNC] Step 13: tia_izin_staf...');
+      const { data: cloudIzin, error: iznErr } = await supabaseClient.from('tia_izin_staf').select('*');
+      if (!iznErr && cloudIzin) {
         const localIzin = JSON.parse(localStorage.getItem(DB_KEYS.IZIN) || '[]');
         const iznMap = new Map(cloudIzin.map(i => [i.id, i]));
         const unsyncedIzin = localIzin.filter(i => i._unsynced);
@@ -652,6 +669,7 @@ const DB = {
         }
         this.cache.izin = Array.from(iznMap.values());
       } else {
+        if (iznErr) console.warn('[SYNC] ⚠️ Step 13 (izin):', iznErr.message);
         this.cache.izin = JSON.parse(localStorage.getItem(DB_KEYS.IZIN) || '[]');
       }
 
@@ -673,7 +691,9 @@ const DB = {
       console.log("Database Supabase berhasil disinkronisasi!");
       return true; // Successfully synced
     } catch (err) {
-      console.warn("Gagal sinkronisasi Supabase. Fallback ke LocalStorage:", err);
+      console.error("[SYNC] ❌ SYNC GAGAL TOTAL:", err?.message || err?.code || err);
+      console.error("[SYNC] Detail:", JSON.stringify(err, null, 2));
+      this._lastSyncError = err?.message || err?.code || 'Unknown error';
       this.init();
       return false;
     }
