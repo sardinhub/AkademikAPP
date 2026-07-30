@@ -2107,7 +2107,10 @@ function buildKelasMentoringView() {
           <div style="padding:10px 16px; border-bottom:1px solid var(--border-xs); display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
             <button class="btn btn-ghost btn-sm" onclick="toggleKelasChk(true)">☑ Pilih Semua</button>
             <button class="btn btn-ghost btn-sm" onclick="toggleKelasChk(false)">☐ Batal Semua</button>
-            <span style="font-size:11px; color:var(--text-muted); margin-left:auto;">⚠ = siswa sudah di kelas lain</span>
+            <button class="btn btn-primary btn-sm" onclick="openAddSiswaToKelas('${selectedKelasId}')" style="margin-left:auto;" title="Tambah siswa baru dan langsung assign ke kelas ini">
+              ➕ Tambah Siswa ke Kelas Ini
+            </button>
+            <span style="font-size:11px; color:var(--text-muted);">⚠ = sudah di kelas lain</span>
           </div>
           <div class="mentor-assign-list" style="max-height:380px; overflow-y:auto;">
             ${siswaRows}
@@ -2168,6 +2171,135 @@ async function saveSiswaKelasAssign(kelasId) {
 /** Toggle semua checkbox siswa di panel kelas */
 function toggleKelasChk(state) {
   document.querySelectorAll('.siswa-kelas-chk').forEach(cb => cb.checked = state);
+}
+
+// ============================================================
+//  FEATURE: TAMBAH SISWA KE KELAS MENTORING (dari panel Kelas Mentoring)
+// ============================================================
+
+/**
+ * Buka modal tambah siswa baru dengan pilihan Kelas Mentoring.
+ * defaultKelasId: pre-select kelas yang sedang aktif di panel.
+ */
+function openAddSiswaToKelas(defaultKelasId) {
+  // Reset edit state
+  App.editSiswaNim = null;
+
+  const kelasOpts = KELAS_OPTIONS.map(k =>
+    `<option value="${k}">${k}</option>`
+  ).join('');
+
+  const progOpts = PROGRAM_OPTIONS.map(p =>
+    `<option value="${p}">${p}</option>`
+  ).join('');
+
+  const kelasMenutoringOpts = KELAS_MENTORING.map(km =>
+    `<option value="${km.id}" ${defaultKelasId === km.id ? 'selected' : ''}>${km.icon} ${km.nama}</option>`
+  ).join('');
+
+  openModal(`
+    <div class="modal-box" style="max-width:480px;">
+      <div class="modal-hd">
+        <div style="text-align:left;">
+          <h3 class="modal-title">➕ Tambah Siswa ke Kelas Mentoring</h3>
+          <span style="font-size:11px; color:var(--text-muted);">Siswa akan terdaftar dan langsung diassign ke kelas yang dipilih</span>
+        </div>
+        <button class="modal-close" onclick="closeModal()">✕</button>
+      </div>
+      <div class="modal-body">
+
+        <!-- Kelas Mentoring — paling atas agar jelas tujuannya -->
+        <div class="form-group" style="background:rgba(255,255,255,0.04); border:1px solid var(--border-xs); border-radius:var(--r-md); padding:12px; margin-bottom:16px;">
+          <label class="form-label" for="sktm-kelas-mentoring" style="color:var(--gold-light); font-size:11px; text-transform:uppercase; letter-spacing:.06em;">🏨 Kelas Mentoring <span class="req">*</span></label>
+          <select class="form-control" id="sktm-kelas-mentoring">
+            <option value="">— Tidak di-assign ke kelas mentoring —</option>
+            ${kelasMenutoringOpts}
+          </select>
+          <span class="form-hint" style="font-size:10px;">Siswa akan langsung masuk ke kelas ini setelah disimpan.</span>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="sktm-nim">NIM <span class="req">*</span></label>
+          <input type="text" class="form-control" id="sktm-nim"
+            placeholder="Contoh: TIA2026001" autocomplete="off">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="sktm-nama">Nama Lengkap <span class="req">*</span></label>
+          <input type="text" class="form-control" id="sktm-nama"
+            placeholder="Contoh: Budi Santoso" autocomplete="off">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="sktm-kelas">Kelas Akademik <span class="req">*</span></label>
+          <select class="form-control" id="sktm-kelas">
+            <option value="">— Pilih Kelas —</option>
+            ${kelasOpts}
+          </select>
+        </div>
+
+        <div class="form-group" style="margin-bottom:0">
+          <label class="form-label" for="sktm-program">Program Studi <span class="req">*</span></label>
+          <select class="form-control" id="sktm-program">
+            <option value="">— Pilih Program —</option>
+            ${progOpts}
+          </select>
+        </div>
+
+      </div>
+      <div class="modal-footer">
+        <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+        <button class="btn btn-primary" id="btn-sktm-simpan" onclick="saveSiswaToKelas()">💾 Simpan &amp; Assign</button>
+      </div>
+    </div>`);
+}
+
+/**
+ * Simpan siswa baru dari modal openAddSiswaToKelas,
+ * lalu langsung assign ke kelas mentoring yang dipilih.
+ */
+async function saveSiswaToKelas() {
+  const nim           = document.getElementById('sktm-nim')?.value?.trim();
+  const nama          = document.getElementById('sktm-nama')?.value?.trim();
+  const kelas         = document.getElementById('sktm-kelas')?.value;
+  const program       = document.getElementById('sktm-program')?.value;
+  const kelasMenutoringId = document.getElementById('sktm-kelas-mentoring')?.value;
+
+  if (!nim)     { toast('NIM tidak boleh kosong', 'warning');    return; }
+  if (!nama)    { toast('Nama tidak boleh kosong', 'warning');    return; }
+  if (!kelas)   { toast('Pilih kelas akademik siswa', 'warning'); return; }
+  if (!program) { toast('Pilih program studi', 'warning');        return; }
+
+  // Disable tombol agar tidak double-submit
+  const btn = document.getElementById('btn-sktm-simpan');
+  if (btn) { btn.disabled = true; btn.innerHTML = '⏳ Menyimpan...'; }
+
+  try {
+    // 1. Tambah ke database siswa
+    await DB.addSiswa({ nim, nama, kelas, program });
+
+    // 2. Jika dipilih kelas mentoring, assign siswa ke kelas tersebut
+    if (kelasMenutoringId) {
+      const currentNims = DB.getSiswaByKelasId(kelasMenutoringId);
+      if (!currentNims.includes(nim)) {
+        await DB.setSiswaKelas(kelasMenutoringId, [...currentNims, nim]);
+      }
+    }
+
+    const km = KELAS_MENTORING.find(k => k.id === kelasMenutoringId);
+    const kelasLabel = km ? ` dan diassign ke ${km.icon} ${km.nama}` : '';
+    toast(`✅ Siswa ${nama} berhasil ditambahkan${kelasLabel}!`, 'success');
+
+    closeModal();
+
+    // Kembali ke tab kelas-mentoring dan fokus ke kelas yang baru diisi
+    if (kelasMenutoringId) App.selectedKelas = kelasMenutoringId;
+    await renderAdminView('kelas-mentoring');
+
+  } catch (err) {
+    if (btn) { btn.disabled = false; btn.innerHTML = '💾 Simpan & Assign'; }
+    toast(err.message || 'Gagal menyimpan data siswa', 'danger');
+  }
 }
 
 // ============================================================
