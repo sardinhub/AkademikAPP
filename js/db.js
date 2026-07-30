@@ -128,19 +128,14 @@ const DB_KEYS = {
 // SISWA CONSTANTS
 // ===========================
 const KELAS_OPTIONS = [
-  'Garuda A', 'Garuda B', 'Garuda C',
-  'Citilink A', 'Citilink B', 'Citilink C',
-  'Angkatan 2022', 'Angkatan 2023', 'Angkatan 2024', 'Angkatan 2025'
+  'GS38', 'GS39', 'GS40',
+  'AV08', 'FA10'
 ];
 
 const PROGRAM_OPTIONS = [
-  'Ground Handling',
-  'Cabin Crew',
-  'Airport Service',
-  'Ticketing & Reservation',
-  'Aviation Security',
-  'Air Traffic Control',
-  'Aircraft Maintenance'
+  'Ground Staff',
+  'AVSEC',
+  'Flight Attendant'
 ];
 
 /** 4 Kelas Mentoring — pengelompokan siswa ke dalam mentor tertentu */
