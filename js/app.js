@@ -21,6 +21,7 @@ const App = {
   selectedKelas: null, // for kelas mentoring admin panel
   draftLogs: {},     // dynamic draft categories
   activeCat: null,   // active category ID
+  currentShift: null, // { shift: 'pagi'|'siang'|null, isActive: bool, label: string }
   logFilter: {       // filter state for Log Aktivitas
     startDate: '',
     endDate: '',
@@ -44,6 +45,26 @@ const SLOT_CATEGORIES = {
   '16:00': ['ekskul-sore', 'catatan-ekskul', 'kesiapan-sore-opt'],
   '20:00': ['kehadiran-malam', 'materi-malam', 'kesiapan-malam', 'catatan-malam'],
   '22:00': ['absen-asrama', 'catatan-asrama']
+};
+
+// ============================================================
+//  SHIFT CONFIG
+// ============================================================
+const SHIFT_CONFIG = {
+  pagi: {
+    label:      'Shift Pagi',
+    jam_mulai:  '10:00',
+    jam_selesai:'13:00',
+    emoji:      '🌅',
+    colorClass: 'shift-pagi'
+  },
+  siang: {
+    label:      'Shift Siang',
+    jam_mulai:  '13:00',
+    jam_selesai:'16:00',
+    emoji:      '☀️',
+    colorClass: 'shift-siang'
+  }
 };
 
 const DRAFT_CHECKLIST_ACTIONS = [
@@ -340,6 +361,8 @@ async function doLogin() {
 
     App.role = 'staff';
     App.user = user;
+    // Deteksi shift staf saat login
+    App.currentShift = DB.detectCurrentShift(user.id);
     await renderStaffView('tracker');
   } else {
     const passEl = document.getElementById('txt-password');
@@ -551,7 +574,18 @@ function buildTracker() {
   return `
     <div class="page-hd">
       <h2 class="page-title">⏱️ Log Aktivitas Harian</h2>
-      <p class="page-sub">Catat aktivitas per jam · ${formatDateLong(today)}</p>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <p class="page-sub" style="margin:0;">Catat aktivitas per jam · ${formatDateLong(today)}</p>
+        ${(() => {
+          const sc = App.currentShift;
+          if (!sc || !sc.shift) return '';
+          const cfg = SHIFT_CONFIG[sc.shift];
+          return `<span class="shift-badge ${cfg.colorClass}${sc.isActive ? ' shift-active' : ' shift-inactive'}">
+            ${cfg.emoji} ${cfg.label} &nbsp;·&nbsp; ${cfg.jam_mulai}–${cfg.jam_selesai}
+            ${sc.isActive ? '<span class="shift-dot-live"></span>' : '<span class="shift-off-label">Di luar jam</span>'}
+          </span>`;
+        })()}
+      </div>
     </div>
 
     <div class="tracker-grid">
@@ -788,7 +822,7 @@ function updateDynamicForm(catId) {
 
     let btnLabel = isNoDosen
       ? (isSaved ? '📋 Lihat Laporan Aktivitas' : '📝 Buka Form Aktivitas Manual')
-      : (isSaved ? (isClosed ? '📋 Lihat Checklist (Selesai)' : '📝 Edit / Close Class') : '📋 Buka Formulir Checklist Kelas');
+      : (isSaved ? (isClosed ? '📋 Lihat Checklist (Selesai)' : '📝 Edit / Close Class') : '📋 Buka Formulir Checklist / Mode Dosen Absen');
 
     container.innerHTML = `
       ${summaryHtml}
@@ -1143,6 +1177,7 @@ async function renderAdminView(tab = 'overview') {
     { id: 'kelas-mentoring', emoji: '🏨', label: 'Kelas Mentoring'   },
     { id: 'waktu-absen',     emoji: '⏰', label: 'Waktu Absen'       },
     { id: 'rekap-absen',     emoji: '📅', label: 'Rekap Absen'       },
+    { id: 'jadwal-shift',    emoji: '🕐', label: 'Jadwal Shift'      },
     { id: 'logs',            emoji: '📋', label: 'Log Aktivitas'     },
     { id: 'issues',          emoji: '⚠️', label: 'Laporan Kendala'  },
     { id: 'pengumuman',      emoji: '📢', label: 'Pengumuman'        },
@@ -1164,6 +1199,7 @@ async function renderAdminView(tab = 'overview') {
     'kelas-mentoring': buildKelasMentoringView,
     'waktu-absen':     buildWaktuAbsenView,
     'rekap-absen':     buildRekapAbsenView,
+    'jadwal-shift':    buildJadwalShiftView,
     logs:              buildLogsView,
     issues:            buildIssueAlerts,
     pengumuman:        buildPengumumanView,
@@ -1315,7 +1351,12 @@ function buildOverview() {
   return `
     <div class="page-hd">
       <h2 class="page-title">📊 Dashboard Monitoring Real-Time</h2>
-      <p class="page-sub">Pantau status staf dan kesiapan kelas · ${formatDateLong(today)}</p>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <p class="page-sub" style="margin:0;">Pantau status staf dan kesiapan kelas · ${formatDateLong(today)}</p>
+        <button class="btn btn-warning btn-sm" onclick="downloadLocalBackup()" style="font-size:12px; font-weight:bold;">
+          💾 Download Backup Data
+        </button>
+      </div>
     </div>
 
     ${statsHtml}
@@ -4486,8 +4527,254 @@ async function prosesIzin(id, status) {
 }
 
 // ============================================================
-//  FITUR 6 — EXPORT LAPORAN (EXCEL & PDF)
+//  FITUR: JADWAL SHIFT (Admin)
 // ============================================================
+function buildJadwalShiftView() {
+  const today      = DB.today();
+  const activeStaff = DB.getActiveStaff();
+
+  // Ambil tanggal yang sedang dilihat dari state atau default hari ini
+  if (!App._shiftViewDate) App._shiftViewDate = today;
+  const viewDate = App._shiftViewDate;
+  const shiftRec = DB.getShiftByTanggal(viewDate);
+
+  const staffPagi  = shiftRec?.staff_pagi  || [];
+  const staffSiang = shiftRec?.staff_siang || [];
+
+  // Buat pilihan staf tersedia untuk setiap slot (belum diassign di shift manapun hari itu)
+  const assignedAll  = [...staffPagi, ...staffSiang];
+  const available    = activeStaff.filter(s => !assignedAll.includes(s.id));
+
+  // Helper: render daftar staf di slot shift
+  function renderSlotMembers(memberIds, shiftKey) {
+    if (memberIds.length === 0) {
+      return `<div class="shift-empty-slot">Belum ada staf yang diassign</div>`;
+    }
+    return memberIds.map(id => {
+      const s = DB.getStaffById(id);
+      if (!s) return '';
+      return `
+        <div class="shift-member-row">
+          <div class="name-cell" style="flex:1">
+            <div class="av av-sm">${DB.getInitials(s.nama)}</div>
+            <div class="name-cell-text">
+              <div class="name-cell-main">${s.nama}</div>
+              <div class="name-cell-sub">${s.jabatan}</div>
+            </div>
+          </div>
+          <button class="btn btn-danger btn-sm" onclick="removeShiftMember('${viewDate}','${shiftKey}','${id}')" title="Hapus dari shift ini">✕</button>
+        </div>`;
+    }).join('');
+  }
+
+  // Build kalender mini 7 hari ke depan
+  const weekDays = Array.from({ length: 7 }, (_, i) => {
+    const d = new Date(today + 'T00:00:00');
+    d.setDate(d.getDate() + i);
+    const iso = d.toISOString().slice(0, 10);
+    const rec = DB.getShiftByTanggal(iso);
+    const hasPagi  = rec?.staff_pagi?.length  > 0;
+    const hasSiang = rec?.staff_siang?.length > 0;
+    const isFull   = hasPagi && hasSiang;
+    const isActive = iso === viewDate;
+    return `
+      <button class="shift-cal-btn ${isActive ? 'active' : ''} ${isFull ? 'full' : hasPagi || hasSiang ? 'partial' : ''}"
+        onclick="shiftViewDate('${iso}')">
+        <span class="shift-cal-day">${DAYS_ID[d.getDay()].slice(0,3)}</span>
+        <span class="shift-cal-date">${String(d.getDate()).padStart(2,'0')}</span>
+        <span class="shift-cal-status">
+          ${isFull ? '✅' : hasPagi || hasSiang ? '⚠️' : '○'}
+        </span>
+      </button>`;
+  }).join('');
+
+  // Dropdown staf untuk tambah ke slot
+  function addDropdown(shiftKey, currentMembers) {
+    if (currentMembers.length >= 2) return `<p style="font-size:11px;color:var(--text-muted);margin-top:8px;">Slot penuh (maks. 2 staf)</p>`;
+    const opts = activeStaff
+      .filter(s => !assignedAll.includes(s.id))
+      .map(s => `<option value="${s.id}">${s.nama} — ${s.jabatan}</option>`)
+      .join('');
+    if (!opts) return `<p style="font-size:11px;color:var(--text-muted);margin-top:8px;">Semua staf sudah diassign</p>`;
+    return `
+      <div style="display:flex;gap:8px;margin-top:10px;align-items:center;">
+        <select class="form-control" id="add-shift-sel-${shiftKey}" style="flex:1;font-size:13px;">
+          <option value="">— Pilih staf —</option>
+          ${opts}
+        </select>
+        <button class="btn btn-primary btn-sm" onclick="addShiftMember('${viewDate}','${shiftKey}')">+ Tambah</button>
+      </div>`;
+  }
+
+  return `
+    <div class="page-hd">
+      <h2 class="page-title">🕐 Jadwal Shift Staf</h2>
+      <p class="page-sub">Atur pembagian shift harian · Shift Pagi 10:00–13:00 &nbsp;·&nbsp; Shift Siang 13:00–16:00</p>
+    </div>
+
+    <div class="banner banner-info mb-4" style="font-size:13px;">
+      ℹ️ Setiap hari ada <strong>2 staf shift pagi (10:00–13:00)</strong> dan <strong>2 staf shift siang (13:00–16:00)</strong>. Manager mengatur siapa yang bertugas di shift mana.
+    </div>
+
+    <!-- Kalender mini 7 hari -->
+    <div class="card mb-4">
+      <div class="card-header">
+        <div class="card-title">📅 Pilih Tanggal</div>
+        <span class="badge badge-ghost">${formatDateLong(viewDate)}</span>
+      </div>
+      <div class="card-body">
+        <div class="shift-cal-row">${weekDays}</div>
+        <div style="display:flex;gap:16px;margin-top:10px;font-size:11px;color:var(--text-muted);">
+          <span>✅ Lengkap</span><span>⚠️ Sebagian</span><span>○ Belum diisi</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Panel Shift -->
+    <div class="shift-panels-grid">
+      <!-- Shift Pagi -->
+      <div class="card shift-panel shift-panel-pagi">
+        <div class="card-header">
+          <div class="card-title">🌅 Shift Pagi</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="shift-badge shift-pagi" style="font-size:11px;">10:00 – 13:00</span>
+            <span class="badge ${staffPagi.length >= 2 ? 'badge-success' : staffPagi.length > 0 ? 'badge-warning' : 'badge-ghost'}">${staffPagi.length}/2 staf</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="shift-members-list" id="shift-pagi-list">
+            ${renderSlotMembers(staffPagi, 'pagi')}
+          </div>
+          ${addDropdown('pagi', staffPagi)}
+        </div>
+      </div>
+
+      <!-- Shift Siang -->
+      <div class="card shift-panel shift-panel-siang">
+        <div class="card-header">
+          <div class="card-title">☀️ Shift Siang</div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span class="shift-badge shift-siang" style="font-size:11px;">13:00 – 16:00</span>
+            <span class="badge ${staffSiang.length >= 2 ? 'badge-success' : staffSiang.length > 0 ? 'badge-warning' : 'badge-ghost'}">${staffSiang.length}/2 staf</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="shift-members-list" id="shift-siang-list">
+            ${renderSlotMembers(staffSiang, 'siang')}
+          </div>
+          ${addDropdown('siang', staffSiang)}
+        </div>
+      </div>
+    </div>
+
+    <!-- Ringkasan jadwal staf minggu ini -->
+    <div class="card mt-4">
+      <div class="card-header">
+        <div class="card-title">👥 Ringkasan Shift Staf Aktif</div>
+        <span class="badge badge-ghost">Hari ini · ${formatDateLong(today)}</span>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead>
+            <tr>
+              <th>Nama Staf</th>
+              <th>Jabatan</th>
+              <th>Shift Hari Ini</th>
+              <th>Jam</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${activeStaff.map(s => {
+              const shiftType = DB.getShiftStaffToday(s.id);
+              const cfg = shiftType ? SHIFT_CONFIG[shiftType] : null;
+              return `
+                <tr>
+                  <td>
+                    <div class="name-cell">
+                      <div class="av av-sm">${DB.getInitials(s.nama)}</div>
+                      <span class="td-strong">${s.nama}</span>
+                    </div>
+                  </td>
+                  <td class="text-sm">${s.jabatan}</td>
+                  <td>
+                    ${cfg
+                      ? `<span class="shift-badge ${cfg.colorClass}">${cfg.emoji} ${cfg.label}</span>`
+                      : '<span class="badge badge-ghost">Tidak ada shift</span>'}
+                  </td>
+                  <td class="text-sm text-muted">${cfg ? `${cfg.jam_mulai} – ${cfg.jam_selesai}` : '—'}</td>
+                </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+}
+
+function shiftViewDate(iso) {
+  App._shiftViewDate = iso;
+  renderAdminView('jadwal-shift');
+}
+
+async function addShiftMember(tanggal, shiftKey) {
+  const selId = `add-shift-sel-${shiftKey}`;
+  const sel = document.getElementById(selId);
+  const staffId = sel?.value;
+  if (!staffId) { toast('Pilih staf terlebih dahulu', 'warning'); return; }
+
+  const rec = DB.getShiftByTanggal(tanggal) || { staff_pagi: [], staff_siang: [] };
+  const staffPagi  = [...(rec.staff_pagi  || [])];
+  const staffSiang = [...(rec.staff_siang || [])];
+
+  // Cek apakah sudah ada di shift lain
+  if (staffPagi.includes(staffId) || staffSiang.includes(staffId)) {
+    toast('Staf ini sudah ada di shift hari tersebut!', 'warning'); return;
+  }
+
+  if (shiftKey === 'pagi') {
+    if (staffPagi.length >= 2) { toast('Shift pagi sudah penuh (maks. 2 staf)', 'warning'); return; }
+    staffPagi.push(staffId);
+  } else {
+    if (staffSiang.length >= 2) { toast('Shift siang sudah penuh (maks. 2 staf)', 'warning'); return; }
+    staffSiang.push(staffId);
+  }
+
+  await DB.setShift({ tanggal, staff_pagi: staffPagi, staff_siang: staffSiang, dibuat_oleh: App.user?.nama || 'Manager' });
+  const s = DB.getStaffById(staffId);
+  toast(`✅ ${s?.nama || 'Staf'} berhasil ditambahkan ke ${shiftKey === 'pagi' ? 'Shift Pagi' : 'Shift Siang'}`, 'success');
+  renderAdminView('jadwal-shift');
+}
+
+async function removeShiftMember(tanggal, shiftKey, staffId) {
+  const s = DB.getStaffById(staffId);
+  if (!confirm(`Hapus ${s?.nama || 'staf ini'} dari ${shiftKey === 'pagi' ? 'Shift Pagi' : 'Shift Siang'}?`)) return;
+
+  const rec = DB.getShiftByTanggal(tanggal) || { staff_pagi: [], staff_siang: [] };
+  let staffPagi  = [...(rec.staff_pagi  || [])];
+  let staffSiang = [...(rec.staff_siang || [])];
+
+  if (shiftKey === 'pagi')  staffPagi  = staffPagi.filter(id => id !== staffId);
+  else                      staffSiang = staffSiang.filter(id => id !== staffId);
+
+  await DB.setShift({ tanggal, staff_pagi: staffPagi, staff_siang: staffSiang, dibuat_oleh: App.user?.nama || 'Manager' });
+  toast(`🗑️ ${s?.nama || 'Staf'} dihapus dari shift`, 'info');
+  renderAdminView('jadwal-shift');
+}
+
+// ============================================================
+//  FITUR 6 — EXPORT LAPORAN & BACKUP
+// ============================================================
+function downloadLocalBackup() {
+  const backupData = JSON.stringify(DB.cache, null, 2);
+  const blob = new Blob([backupData], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `AkademikAPP_FullBackup_${DB.today()}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('✅ File Backup berhasil didownload!', 'success');
+}
+
 function exportLogsToExcel(filterParams) {
   if (typeof XLSX === 'undefined') { toast('Library XLSX tidak tersedia. Periksa koneksi internet.', 'danger'); return; }
   const logs = DB.getLogs(filterParams || App.logFilter || {});

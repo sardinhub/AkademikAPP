@@ -2269,3 +2269,183 @@ input:disabled + .nd-switch-track {
 .nd-toggle-text {
   flex: 1;
 }
+
+/* ============================================================
+   FITUR JADWAL SHIFT
+   ============================================================ */
+
+/* ── Badge shift (tampil di header Log Aktivitas staf) ── */
+.shift-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.shift-pagi {
+  background: linear-gradient(135deg, rgba(245,158,11,0.18), rgba(245,158,11,0.06));
+  border: 1px solid rgba(245,158,11,0.4);
+  color: #fbbf24;
+}
+
+.shift-siang {
+  background: linear-gradient(135deg, rgba(56,189,248,0.18), rgba(56,189,248,0.06));
+  border: 1px solid rgba(56,189,248,0.4);
+  color: #38bdf8;
+}
+
+/* Active shift: slight glow */
+.shift-badge.shift-active.shift-pagi {
+  box-shadow: 0 0 12px rgba(245,158,11,0.25);
+}
+.shift-badge.shift-active.shift-siang {
+  box-shadow: 0 0 12px rgba(56,189,248,0.25);
+}
+
+/* Inactive: muted appearance */
+.shift-badge.shift-inactive {
+  opacity: 0.65;
+}
+
+/* Live pulsing dot for active shift */
+.shift-dot-live {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: shiftPulse 1.6s ease-in-out infinite;
+}
+
+@keyframes shiftPulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50%       { opacity: 0.4; transform: scale(0.75); }
+}
+
+/* "Di luar jam" label */
+.shift-off-label {
+  font-size: 10px;
+  font-weight: 400;
+  opacity: 0.75;
+  font-style: italic;
+}
+
+/* ── Admin: panel shift grid ── */
+.shift-panels-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-4);
+}
+
+@media (max-width: 640px) {
+  .shift-panels-grid { grid-template-columns: 1fr; }
+}
+
+/* Accent border per shift type on the card */
+.shift-panel-pagi {
+  border-top: 3px solid rgba(245,158,11,0.6) !important;
+}
+.shift-panel-siang {
+  border-top: 3px solid rgba(56,189,248,0.6) !important;
+}
+
+/* ── Shift member row ── */
+.shift-members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shift-member-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border-xs);
+  border-radius: var(--r-md);
+  transition: background 0.15s;
+}
+
+.shift-member-row:hover {
+  background: rgba(255,255,255,0.055);
+}
+
+.shift-empty-slot {
+  padding: 14px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-style: italic;
+  border: 1px dashed var(--border-sm);
+  border-radius: var(--r-md);
+}
+
+/* ── Kalender mini shift ── */
+.shift-cal-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.shift-cal-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 10px 14px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-sm);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: all 0.18s ease;
+  color: var(--text-secondary);
+  min-width: 60px;
+}
+
+.shift-cal-btn:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-md);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.shift-cal-btn.active {
+  background: var(--primary-dim);
+  border-color: var(--primary);
+  color: var(--primary-light);
+  box-shadow: 0 0 10px var(--primary-glow);
+}
+
+.shift-cal-btn.full {
+  border-color: rgba(16,185,129,0.4);
+}
+
+.shift-cal-btn.partial {
+  border-color: rgba(245,158,11,0.35);
+}
+
+.shift-cal-day {
+  font-size: 10px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  opacity: 0.7;
+}
+
+.shift-cal-date {
+  font-size: 18px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.shift-cal-status {
+  font-size: 12px;
+}

@@ -74,6 +74,15 @@
      kelas_id text NOT NULL
    );
 
+   CREATE TABLE public.tia_jadwal_shift (
+     id          text PRIMARY KEY,
+     tanggal     text NOT NULL,
+     staff_pagi  jsonb NOT NULL DEFAULT '[]',
+     staff_siang jsonb NOT NULL DEFAULT '[]',
+     dibuat_oleh text,
+     created_at  text NOT NULL
+   );
+
    -- Disable RLS for rapid testing/prototype:
    ALTER TABLE public.tia_master_staff DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_log_aktivitas DISABLE ROW LEVEL SECURITY;
@@ -83,6 +92,7 @@
    ALTER TABLE public.tia_absen_mentoring DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_staff_kelas_assign DISABLE ROW LEVEL SECURITY;
    ALTER TABLE public.tia_siswa_kelas_assign DISABLE ROW LEVEL SECURITY;
+   ALTER TABLE public.tia_jadwal_shift DISABLE ROW LEVEL SECURITY;
    ============================================================ */
 
 'use strict';
@@ -121,7 +131,8 @@ const DB_KEYS = {
   PENGUMUMAN:      'tia_pengumuman',
   PENILAIAN:       'tia_penilaian_staf',
   PIKET:           'tia_jadwal_piket',
-  IZIN:            'tia_izin_staf'
+  IZIN:            'tia_izin_staf',
+  SHIFT:           'tia_jadwal_shift'
 };
 
 // ===========================
@@ -251,7 +262,8 @@ const DB = {
     pengumuman: [],
     penilaian: [],
     piket: [],
-    izin: []
+    izin: [],
+    shift: []
   },
 
   /** Initialize cache with local data & seed default staff once */
@@ -269,6 +281,7 @@ const DB = {
     this.cache.penilaian      = JSON.parse(localStorage.getItem(DB_KEYS.PENILAIAN) || '[]');
     this.cache.piket          = JSON.parse(localStorage.getItem(DB_KEYS.PIKET) || '[]');
     this.cache.izin           = JSON.parse(localStorage.getItem(DB_KEYS.IZIN) || '[]');
+    this.cache.shift          = JSON.parse(localStorage.getItem(DB_KEYS.SHIFT) || '[]');
 
     if (this.cache.absenConfig.length === 0) {
       KELAS_MENTORING.forEach(km => {
@@ -668,6 +681,26 @@ const DB = {
         this.cache.izin = JSON.parse(localStorage.getItem(DB_KEYS.IZIN) || '[]');
       }
 
+      // 14. Sync Jadwal Shift
+      console.log('[SYNC] Step 14: tia_jadwal_shift...');
+      const { data: cloudShift, error: shiftErr } = await supabaseClient.from('tia_jadwal_shift').select('*');
+      if (!shiftErr && cloudShift) {
+        const localShift = JSON.parse(localStorage.getItem(DB_KEYS.SHIFT) || '[]');
+        const shiftMap = new Map(cloudShift.map(s => [s.id, s]));
+        const unsyncedShift = localShift.filter(s => s._unsynced);
+        for (const s of unsyncedShift) {
+          try {
+            const clean = { ...s }; delete clean._unsynced;
+            const { error } = await supabaseClient.from('tia_jadwal_shift').upsert([clean]);
+            if (!error) { delete s._unsynced; shiftMap.set(s.id, clean); }
+          } catch(e) { shiftMap.set(s.id, s); }
+        }
+        this.cache.shift = Array.from(shiftMap.values());
+      } else {
+        if (shiftErr) console.warn('[SYNC] ⚠️ Step 14 (shift):', shiftErr.message);
+        this.cache.shift = JSON.parse(localStorage.getItem(DB_KEYS.SHIFT) || '[]');
+      }
+
       // Update backup local storage
       localStorage.setItem(DB_KEYS.STAFF,           JSON.stringify(this.cache.staff));
       localStorage.setItem(DB_KEYS.LOGS,            JSON.stringify(this.cache.logs));
@@ -682,6 +715,7 @@ const DB = {
       localStorage.setItem(DB_KEYS.PENILAIAN,       JSON.stringify(this.cache.penilaian));
       localStorage.setItem(DB_KEYS.PIKET,           JSON.stringify(this.cache.piket));
       localStorage.setItem(DB_KEYS.IZIN,            JSON.stringify(this.cache.izin));
+      localStorage.setItem(DB_KEYS.SHIFT,           JSON.stringify(this.cache.shift));
 
       console.log("Database Supabase berhasil disinkronisasi!");
       return true; // Successfully synced
@@ -1446,6 +1480,104 @@ const DB = {
       } catch(e) { console.warn('Cloud izin update failed:', e); }
     }
     return rec;
+  },
+
+  // ── JADWAL SHIFT CRUD ─────────────────────────────
+
+  /** Ambil semua jadwal shift. Filter opsional: tanggal. */
+  getShift(filter = {}) {
+    let arr = [...this.cache.shift];
+    if (filter.tanggal) arr = arr.filter(s => s.tanggal === filter.tanggal);
+    return arr.sort((a, b) => a.tanggal.localeCompare(b.tanggal));
+  },
+
+  /** Ambil jadwal shift staf untuk hari ini. Return: 'pagi' | 'siang' | null */
+  getShiftStaffToday(staffId) {
+    const today = this.today();
+    const rec = this.cache.shift.find(s => s.tanggal === today);
+    if (!rec) return null;
+    if ((rec.staff_pagi  || []).includes(staffId)) return 'pagi';
+    if ((rec.staff_siang || []).includes(staffId)) return 'siang';
+    return null;
+  },
+
+  /** Ambil jadwal shift staf untuk tanggal tertentu. Return: 'pagi' | 'siang' | null */
+  getShiftStaffByDate(staffId, tanggal) {
+    const rec = this.cache.shift.find(s => s.tanggal === tanggal);
+    if (!rec) return null;
+    if ((rec.staff_pagi  || []).includes(staffId)) return 'pagi';
+    if ((rec.staff_siang || []).includes(staffId)) return 'siang';
+    return null;
+  },
+
+  /** Ambil record shift untuk tanggal tertentu. */
+  getShiftByTanggal(tanggal) {
+    return this.cache.shift.find(s => s.tanggal === tanggal) || null;
+  },
+
+  /**
+   * Simpan/replace jadwal shift untuk satu tanggal.
+   * staff_pagi: array staffId (max 2), staff_siang: array staffId (max 2)
+   */
+  async setShift({ tanggal, staff_pagi, staff_siang, dibuat_oleh }) {
+    const id = `SHF_${tanggal}`;
+    const existing = this.cache.shift.findIndex(s => s.tanggal === tanggal);
+    const rec = {
+      id,
+      tanggal,
+      staff_pagi:  staff_pagi  || [],
+      staff_siang: staff_siang || [],
+      dibuat_oleh: dibuat_oleh || 'ADMIN',
+      created_at:  new Date().toISOString()
+    };
+    if (existing !== -1) {
+      this.cache.shift[existing] = rec;
+    } else {
+      this.cache.shift.push(rec);
+    }
+    localStorage.setItem(DB_KEYS.SHIFT, JSON.stringify(this.cache.shift));
+
+    if (supabaseClient) {
+      try {
+        const { error } = await supabaseClient.from('tia_jadwal_shift').upsert([rec]);
+        if (error) throw error;
+        localStorage.setItem(DB_KEYS.SHIFT, JSON.stringify(this.cache.shift));
+      } catch(e) {
+        console.warn('Cloud shift save failed:', e);
+        rec._unsynced = true;
+        localStorage.setItem(DB_KEYS.SHIFT, JSON.stringify(this.cache.shift));
+      }
+    } else {
+      rec._unsynced = true;
+      localStorage.setItem(DB_KEYS.SHIFT, JSON.stringify(this.cache.shift));
+    }
+    return rec;
+  },
+
+  async deleteShift(tanggal) {
+    this.cache.shift = this.cache.shift.filter(s => s.tanggal !== tanggal);
+    localStorage.setItem(DB_KEYS.SHIFT, JSON.stringify(this.cache.shift));
+    if (supabaseClient) {
+      try { await supabaseClient.from('tia_jadwal_shift').delete().eq('tanggal', tanggal); } catch(e) {}
+    }
+  },
+
+  /**
+   * Deteksi shift aktif staf berdasarkan jam sekarang.
+   * Return: { shift: 'pagi'|'siang'|null, isActive: boolean, label: string }
+   */
+  detectCurrentShift(staffId) {
+    const shiftType = this.getShiftStaffToday(staffId);
+    if (!shiftType) return { shift: null, isActive: false, label: null };
+
+    const now = this.nowHHMM();
+    const ranges = {
+      pagi:  { start: '10:00', end: '13:00' },
+      siang: { start: '13:00', end: '16:00' }
+    };
+    const range = ranges[shiftType];
+    const isActive = now >= range.start && now < range.end;
+    return { shift: shiftType, isActive, label: shiftType === 'pagi' ? 'Shift Pagi' : 'Shift Siang' };
   },
 
   // ── HELPERS ──────────────────────────────────────────
