@@ -498,7 +498,11 @@ function buildTracker() {
         if (desc && desc.startsWith('{') && desc.endsWith('}')) {
           try {
             const data = JSON.parse(desc);
-            if (data && data.metadata) {
+            if (data && data.no_dosen) {
+              const alasan = data.alasan_no_dosen || 'Tidak diketahui';
+              const subjek = data.subject_no_dosen ? ` · ${data.subject_no_dosen}` : '';
+              desc = `⚠️ <strong style="color:var(--warning);">Tanpa Dosen</strong>${subjek} · Alasan: <em>${alasan}</em> · ${data.aktivitas_staff || '—'}`;
+            } else if (data && data.metadata) {
               const meta = data.metadata;
               const chk = data.checklist || {};
               const okCount = Object.values(chk).filter(v => v.val).length;
@@ -632,7 +636,7 @@ function refreshCatChips() {
     if (isSaved && savedLog && catId.startsWith('kesiapan-')) {
       try {
         const data = JSON.parse(savedLog.deskripsi);
-        if (data.is_closed) isClosed = true;
+        if (data.is_closed || data.no_dosen) isClosed = true;
       } catch (e) {}
     } else if (isSaved) {
       isClosed = true;
@@ -716,7 +720,7 @@ function updateDynamicForm(catId) {
   if (isSaved && savedLog && catId.startsWith('kesiapan-')) {
     try {
       const data = JSON.parse(savedLog.deskripsi);
-      if (data.is_closed) isClosed = true;
+      if (data.is_closed || data.no_dosen) isClosed = true;
     } catch(e) {}
   }
 
@@ -736,19 +740,32 @@ function updateDynamicForm(catId) {
   const dis = isSaved ? 'disabled' : '';
 
   if (catId.startsWith('kesiapan-')) {
-    hint.textContent = isSaved 
-      ? (isClosed ? 'Checklist kelas sudah selesai & dikunci.' : 'Kelas sedang berjalan. Anda bisa memperbarui jam akhir dosen.') 
-      : 'Isi checklist kesiapan ruangan dan pengecekan kedisiplinan siswa.';
-      
     let data = null;
     try {
-      if (draftVal) {
-        data = JSON.parse(draftVal);
-      }
+      if (draftVal) data = JSON.parse(draftVal);
     } catch(e) {}
 
+    const isNoDosen = data && data.no_dosen === true;
+
+    hint.textContent = isSaved 
+      ? (isNoDosen ? 'Aktivitas manual tercatat (dosen tidak hadir).' : isClosed ? 'Checklist kelas sudah selesai & dikunci.' : 'Kelas sedang berjalan. Anda bisa memperbarui jam akhir dosen.') 
+      : 'Isi checklist kesiapan ruangan dan pengecekan kedisiplinan siswa.';
+      
     let summaryHtml = '';
-    if (data && data.metadata) {
+    if (data && isNoDosen) {
+      summaryHtml = `
+        <div style="background:rgba(234,179,8,0.06); border:1px solid rgba(234,179,8,0.25); border-radius:var(--r-md); padding:14px; margin-bottom:12px; font-size:13px; text-align:left;">
+          <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+            <span style="font-size:18px;">⚠️</span>
+            <strong style="color:var(--warning); font-size:14px;">Dosen Tidak Hadir</strong>
+          </div>
+          ${data.subject_no_dosen ? `<div style="margin-bottom:5px;"><strong>Mata Kuliah:</strong> ${data.subject_no_dosen}</div>` : ''}
+          ${data.nama_dosen_absen ? `<div style="margin-bottom:5px;"><strong>Dosen Absen:</strong> ${data.nama_dosen_absen}</div>` : ''}
+          <div style="margin-bottom:5px;"><strong>Alasan:</strong> <span style="color:var(--warning);">${data.alasan_no_dosen || '—'}</span></div>
+          <div style="margin-bottom:5px;"><strong>Aktivitas Staf:</strong> ${data.aktivitas_staff || '—'}</div>
+          ${data.catatan ? `<div style="margin-bottom:5px;"><strong>Catatan:</strong> ${data.catatan}</div>` : ''}
+        </div>`;
+    } else if (data && data.metadata) {
       const meta = data.metadata;
       const chk = data.checklist || {};
       const totalItems = Object.keys(chk).length || 20;
@@ -769,10 +786,14 @@ function updateDynamicForm(catId) {
         </div>`;
     }
 
+    let btnLabel = isNoDosen
+      ? (isSaved ? '📋 Lihat Laporan Aktivitas' : '📝 Buka Form Aktivitas Manual')
+      : (isSaved ? (isClosed ? '📋 Lihat Checklist (Selesai)' : '📝 Edit / Close Class') : '📋 Buka Formulir Checklist Kelas');
+
     container.innerHTML = `
       ${summaryHtml}
       <button class="btn btn-gold btn-full" onclick="openClassChecklistModal('${catId}')" style="margin-top:6px;">
-        📋 ${isSaved ? (isClosed ? 'Lihat Checklist (Selesai)' : '📝 Edit / Close Class') : '📝 Buka Formulir Checklist Kelas'}
+        ${btnLabel}
       </button>
       <input type="hidden" id="log-desc" value="${draftVal.replace(/"/g, '&quot;')}">`;
   } else if (catId === 'ekskul-sore') {
@@ -1181,6 +1202,17 @@ function buildOverview() {
   const submitted = cls.filter(c => c.submitted);
   const issuesCL  = cls.filter(c => c.items && Object.values(c.items).some(v => v === 'rusak'));
 
+  // Logs dengan dosen tidak hadir hari ini
+  const noDossenLogs = logs.filter(l => {
+    try {
+      if (l.deskripsi && l.deskripsi.startsWith('{')) {
+        const d = JSON.parse(l.deskripsi);
+        return d.no_dosen === true;
+      }
+    } catch(e) {}
+    return false;
+  });
+
   /* Stats */
   const statsHtml = `
     <div class="stats-grid">
@@ -1288,6 +1320,33 @@ function buildOverview() {
 
     ${statsHtml}
 
+    ${noDossenLogs.length > 0 ? `
+    <div class="card" style="margin-bottom:var(--sp-4); border-color:rgba(234,179,8,0.3); background:rgba(234,179,8,0.03);">
+      <div class="card-header" style="border-color:rgba(234,179,8,0.2);">
+        <div class="card-title" style="color:var(--warning);">⚠️ Laporan Ketidakhadiran Dosen Hari Ini</div>
+        <span class="badge badge-warning">${noDossenLogs.length} kejadian</span>
+      </div>
+      <div class="table-wrap">
+        <table class="tbl">
+          <thead><tr><th>Staf</th><th>Jam</th><th>Mata Kuliah</th><th>Alasan</th><th>Aktivitas Staf</th></tr></thead>
+          <tbody>
+            ${noDossenLogs.map(l => {
+              let nd = {};
+              try { nd = JSON.parse(l.deskripsi); } catch(e) {}
+              const st = staff.find(s => s.id === l.staff_id);
+              return `<tr>
+                <td><div class="name-cell"><div class="av av-sm">${DB.getInitials(st?.nama || l.staff_nama || '?')}</div><span class="td-strong">${st?.nama || l.staff_nama}</span></div></td>
+                <td><span class="badge badge-warning">${l.jam}</span></td>
+                <td style="font-size:12px;">${nd.subject_no_dosen || '\u2014'}</td>
+                <td><span style="font-size:12px; color:var(--warning);">${nd.alasan_no_dosen || '\u2014'}</span></td>
+                <td style="font-size:12px; color:var(--text-muted); max-width:220px; white-space:normal;">${nd.aktivitas_staff || '\u2014'}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>` : ''}
+
     <div class="dash-grid">
       <!-- Staff Activity Table -->
       <div class="card">
@@ -1369,6 +1428,33 @@ function showStaffSlotDetails(staffId, jam) {
     }
 
     if (isStructured && structData) {
+      // Handle no_dosen (dosen tidak hadir) mode first
+      if (structData.no_dosen) {
+        listHtml += `
+          <div style="background:rgba(234,179,8,0.05); border:1px solid rgba(234,179,8,0.22); border-radius:var(--r-md); padding:14px; margin-bottom:12px; text-align:left;">
+            <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid rgba(255,255,255,0.05); padding-bottom:8px; margin-bottom:10px;">
+              <div style="font-weight:700; color:var(--warning); font-size:14px; display:flex; align-items:center; gap:6px;">
+                ⚠️ <span>${cat.name}</span>
+                <span class="badge badge-warning" style="font-size:9px; padding:2px 6px; margin-left:4px;">Tanpa Dosen</span>
+              </div>
+              <span class="badge badge-ghost" style="font-size:10px;">${sentTime}</span>
+            </div>
+            <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; font-size:12px; color:var(--text-secondary);">
+              <div>
+                ${structData.subject_no_dosen ? `<div style="margin-bottom:4px;"><strong>Mata Kuliah:</strong> ${structData.subject_no_dosen}</div>` : ''}
+                ${structData.nama_dosen_absen ? `<div style="margin-bottom:4px;"><strong>Dosen Absen:</strong> ${structData.nama_dosen_absen}</div>` : ''}
+                <div><strong>Alasan:</strong> <span style="color:var(--warning);">${structData.alasan_no_dosen || '—'}</span></div>
+              </div>
+              <div>
+                <div style="font-weight:600; color:var(--text-primary); margin-bottom:4px;">Aktivitas Staf:</div>
+                <div style="line-height:1.5;">${structData.aktivitas_staff || '—'}</div>
+              </div>
+            </div>
+            ${structData.catatan ? `<div style="margin-top:10px; padding-top:8px; border-top:1px solid rgba(255,255,255,0.05); font-size:12px;"><strong>Catatan:</strong> ${structData.catatan}</div>` : ''}
+            <div style="margin-top:8px; font-size:10px; color:var(--text-muted);">Dicatat oleh: ${structData.recorded_by_nama || log.staff_nama}</div>
+          </div>`;
+        return; // skip checklist rendering for no_dosen logs
+      }
       const meta = structData.metadata || {};
       const chk = structData.checklist || {};
       const rName = ROOMS.find(r => r.id === meta.class_room)?.name || meta.class_room;
@@ -2657,7 +2743,11 @@ function buildLogsView() {
     if (desc && desc.startsWith('{') && desc.endsWith('}')) {
       try {
         const data = JSON.parse(desc);
-        if (data && data.metadata) {
+        if (data && data.no_dosen) {
+          const alasan = data.alasan_no_dosen || '—';
+          const subjek = data.subject_no_dosen || '';
+          desc = `⚠️ <strong style="color:var(--warning);">Tanpa Dosen</strong>${subjek ? ' · ' + subjek : ''} · Alasan: <em>${alasan}</em> · <span style="color:var(--text-secondary);">${data.aktivitas_staff || '—'}</span>`;
+        } else if (data && data.metadata) {
           const meta = data.metadata;
           const chk = data.checklist || {};
           const okCount = Object.values(chk).filter(v => v.val).length;
@@ -2849,7 +2939,6 @@ function buildIssueAlerts() {
 }
 
 function openClassChecklistModal(catId, jamParam = null, staffIdParam = null) {
-  // Check if saved in db
   const jam = jamParam || qs('#log-jam')?.value;
   const staffId = staffIdParam || App.user.id;
   
@@ -2861,33 +2950,26 @@ function openClassChecklistModal(catId, jamParam = null, staffIdParam = null) {
   
   const rawData = isSaved ? savedLog.deskripsi : (App.draftLogs[catId] || '');
   let data = {
-    is_closed: false,
-    metadata: {
-      pic_dosen: '', subject: '', class_room: '', chairman: '', program: '',
+    is_closed: false, no_dosen: false,
+    metadata: { pic_dosen: '', subject: '', class_room: '', chairman: '', program: '',
       total_std: '', unwell: 0, no_show: 0, on_leave: 0, total_act: 0,
-      std: '', atd: '', sta: '', ata: ''
-    },
+      std: '', atd: '', sta: '', ata: '' },
     checklist: {}
   };
+  try { if (rawData) data = JSON.parse(rawData); } catch(e) {}
 
-  try {
-    if (rawData) {
-      data = JSON.parse(rawData);
-    }
-  } catch(e) {}
-
-  const isClosed = isSaved ? (data.is_closed || false) : false;
+  const isNoDosen = data.no_dosen === true;
+  const isClosed = isSaved ? (data.is_closed || data.no_dosen || false) : false;
   const dis = (isClosed && App.role !== 'admin') ? 'disabled' : '';
+  const disND = dis; // same disabled state for no-dosen form
 
   const meta = data.metadata || {};
   const chk = data.checklist || {};
 
-  // Options for class room dropdown
   const roomOpts = ROOMS.map(r => 
     `<option value="${r.id}" ${meta.class_room === r.id ? 'selected' : ''}>${r.name}</option>`
   ).join('');
 
-  // 20 actions HTML
   let rowsHtml = '';
   DRAFT_CHECKLIST_ACTIONS.forEach(item => {
     const itemData = chk[item.no] || { val: false, remark: '' };
@@ -2909,123 +2991,211 @@ function openClassChecklistModal(catId, jamParam = null, staffIdParam = null) {
       </div>`;
   });
 
+  const alasanOptions = ['Sakit', 'Izin', 'Tugas Luar Kota', 'Kegiatan Institusi', 'Tidak Diketahui', 'Lainnya'];
+  const alasanOpts = alasanOptions.map(a => 
+    `<option value="${a}" ${data.alasan_no_dosen === a ? 'selected' : ''}>${a}</option>`
+  ).join('');
+
+  const toggleChecked = isNoDosen ? 'checked' : '';
+  const ndDisplay = isNoDosen ? 'block' : 'none';
+  const normalDisplay = isNoDosen ? 'none' : 'block';
+  const toggleCanChange = !dis ? '' : 'disabled';
+
   const modalHtml = `
     <div class="modal-box" style="max-width:850px; width:95%;">
       <div class="modal-hd">
         <div style="text-align:left;">
           <h3 class="modal-title">📋 Class Checklist Form</h3>
           <span style="font-size:11px; color:var(--text-muted); font-weight:500;">
-            Triesakti Institute of Airlines · Kesiapan &amp; Kerapian Kelas
+            Triesakti Institute of Airlines &amp; Kesiapan Kelas
           </span>
         </div>
         <button class="modal-close" onclick="closeModal()">✕</button>
       </div>
       <div class="modal-body" style="max-height:65vh; overflow-y:auto; padding-right:10px;">
-        
-        <!-- Metadata 2-Column Grid -->
-        <h4 style="color:var(--gold-light); font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px; margin-bottom:14px; text-align:left;">
-          Class Preparation Metadata
-        </h4>
-        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:24px; text-align:left;">
-          <!-- Left Column -->
-          <div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">P.I.C / Dosen <span class="req">*</span></label>
-              <input type="text" class="form-control" id="c-pic" value="${meta.pic_dosen || ''}" ${dis} placeholder="Nama dosen pengajar">
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">Subject / Mata Kuliah <span class="req">*</span></label>
-              <input type="text" class="form-control" id="c-subject" value="${meta.subject || ''}" ${dis} placeholder="Nama mata kuliah">
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">A/C Reg. / Ruang Kelas <span class="req">*</span></label>
-              <select class="form-control" id="c-room" ${dis}>
-                <option value="">— Pilih Ruangan —</option>
-                ${roomOpts}
-              </select>
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">Chairman / Ketua Kelas</label>
-              <input type="text" class="form-control" id="c-chairman" value="${meta.chairman || ''}" ${dis} placeholder="Ketua kelas / perwakilan">
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">Class Program / Jurusan</label>
-              <input type="text" class="form-control" id="c-program" value="${meta.program || ''}" ${dis} placeholder="Program studi / angkatan">
-            </div>
-            <div style="display:flex; gap:12px;">
-              <div class="form-group" style="flex:1;">
-                <label class="form-label" style="font-size:10px;">STD (Class Start)</label>
-                <input type="time" class="form-control" id="c-std" value="${meta.std || ''}" ${dis}>
-              </div>
-              <div class="form-group" style="flex:1;">
-                <label class="form-label" style="font-size:10px;">ATD (Actual Start)</label>
-                <input type="time" class="form-control" id="c-atd" value="${meta.atd || ''}" ${dis}>
+
+        <!-- Toggle: Dosen Tidak Hadir -->
+        <div class="nd-toggle-banner ${isNoDosen ? 'nd-active' : ''}">
+          <label class="nd-toggle-label" style="${dis ? 'cursor:not-allowed;' : ''}">
+            <div class="nd-switch-wrap">
+              <input type="checkbox" id="toggle-no-dosen" ${toggleChecked} ${toggleCanChange} onchange="toggleNoDosen()" style="display:none;">
+              <div class="nd-switch-track">
+                <div class="nd-switch-thumb"></div>
               </div>
             </div>
-          </div>
-          
-          <!-- Right Column -->
-          <div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">Total Std. Pax (Total Siswa) <span class="req">*</span></label>
-              <input type="number" class="form-control" id="c-total-std" value="${meta.total_std || ''}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">Unwell Pax (Sakit)</label>
-              <input type="number" class="form-control" id="c-unwell" value="${meta.unwell || 0}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">No-show Pax (Absent/Alfa)</label>
-              <input type="number" class="form-control" id="c-no-show" value="${meta.no_show || 0}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px;">On-leave Pax (Izin)</label>
-              <input type="number" class="form-control" id="c-on-leave" value="${meta.on_leave || 0}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
-            </div>
-            <div class="form-group">
-              <label class="form-label" style="font-size:10px; color:var(--success);">Total Act. Pax (Total Hadir)</label>
-              <input type="number" class="form-control" id="c-total-act" value="${meta.total_act || 0}" disabled style="background:rgba(16,185,129,0.05); color:var(--success); border-color:var(--success-border);" placeholder="0">
-            </div>
-            <div style="display:flex; gap:12px;">
-              <div class="form-group" style="flex:1;">
-                <label class="form-label" style="font-size:10px;">STA (Class End)</label>
-                <input type="time" class="form-control" id="c-sta" value="${meta.sta || ''}" ${dis}>
+            <div class="nd-toggle-text">
+              <div id="nd-toggle-title" style="font-weight:700; font-size:14px; color:${isNoDosen ? 'var(--warning)' : 'var(--text-primary)'};">
+                ${isNoDosen ? '⚠️ Dosen Tidak Hadir' : '✅ Dosen Hadir (Normal)'}
               </div>
-              <div class="form-group" style="flex:1;">
-                <label class="form-label" style="font-size:10px;">ATA (Actual End)</label>
-                <input type="time" class="form-control" id="c-ata" value="${meta.ata || ''}" ${dis}>
+              <div id="nd-toggle-desc" style="font-size:11px; color:var(--text-muted); margin-top:2px;">
+                ${isNoDosen ? 'Mode aktivitas manual staf — tanpa checklist kelas.' : 'Aktifkan jika dosen tidak hadir / berhalangan pada jam ini.'}
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <!-- SECTION: Form Aktivitas Manual (No Dosen) -->
+        <div id="section-no-dosen" style="display:${ndDisplay};">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(300px, 1fr)); gap:16px; margin-top:16px; text-align:left;">
+            <div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Mata Kuliah yang Seharusnya Berlangsung <span class="req">*</span></label>
+                <input type="text" class="form-control" id="nd-subject" value="${data.subject_no_dosen || ''}" ${disND} placeholder="Contoh: Navigasi Udara, Prosedur Keamanan...">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Nama Dosen yang Tidak Hadir <span style="color:var(--text-muted);">(opsional)</span></label>
+                <input type="text" class="form-control" id="nd-nama-dosen" value="${data.nama_dosen_absen || ''}" ${disND} placeholder="Nama dosen (jika diketahui)">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Alasan Ketidakhadiran <span class="req">*</span></label>
+                <select class="form-control" id="nd-alasan" ${disND}>
+                  <option value="">— Pilih Alasan —</option>
+                  ${alasanOpts}
+                </select>
+              </div>
+            </div>
+            <div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Aktivitas Staf Selama Jam Ini <span class="req">*</span></label>
+                <textarea class="form-control" id="nd-aktivitas" rows="5" ${disND} placeholder="Contoh: Mendampingi siswa belajar mandiri, menjaga ketertiban kelas, menginformasikan jadwal pengganti ke ketua kelas, mengisi absensi siswa...">${data.aktivitas_staff || ''}</textarea>
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Catatan Tambahan <span style="color:var(--text-muted);">(opsional)</span></label>
+                <textarea class="form-control" id="nd-catatan" rows="2" ${disND} placeholder="Catatan kondisi kelas, tindak lanjut, atau informasi lainnya...">${data.catatan || ''}</textarea>
               </div>
             </div>
           </div>
         </div>
 
-        <!-- Checklist Actions Section -->
-        <h4 style="color:var(--gold-light); font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px; margin-bottom:14px; text-align:left;">
-          Classroom &amp; Students Checklist
-        </h4>
-        <div style="display:flex; flex-direction:column; background:rgba(0,0,0,0.2); border:1px solid var(--border-sm); border-radius:var(--r-md); padding:0 14px;">
-          ${rowsHtml}
+        <!-- SECTION: Normal Checklist Form -->
+        <div id="section-normal-checklist" style="display:${normalDisplay};">
+          <h4 style="color:var(--gold-light); font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px; margin-bottom:14px; margin-top:16px; text-align:left;">
+            Class Preparation Metadata
+          </h4>
+          <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap:16px; margin-bottom:24px; text-align:left;">
+            <div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">P.I.C / Dosen <span class="req">*</span></label>
+                <input type="text" class="form-control" id="c-pic" value="${meta.pic_dosen || ''}" ${dis} placeholder="Nama dosen pengajar">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Subject / Mata Kuliah <span class="req">*</span></label>
+                <input type="text" class="form-control" id="c-subject" value="${meta.subject || ''}" ${dis} placeholder="Nama mata kuliah">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">A/C Reg. / Ruang Kelas <span class="req">*</span></label>
+                <select class="form-control" id="c-room" ${dis}>
+                  <option value="">— Pilih Ruangan —</option>
+                  ${roomOpts}
+                </select>
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Chairman / Ketua Kelas</label>
+                <input type="text" class="form-control" id="c-chairman" value="${meta.chairman || ''}" ${dis} placeholder="Ketua kelas / perwakilan">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Class Program / Jurusan</label>
+                <input type="text" class="form-control" id="c-program" value="${meta.program || ''}" ${dis} placeholder="Program studi / angkatan">
+              </div>
+              <div style="display:flex; gap:12px;">
+                <div class="form-group" style="flex:1;">
+                  <label class="form-label" style="font-size:10px;">STD (Class Start)</label>
+                  <input type="time" class="form-control" id="c-std" value="${meta.std || ''}" ${dis}>
+                </div>
+                <div class="form-group" style="flex:1;">
+                  <label class="form-label" style="font-size:10px;">ATD (Actual Start)</label>
+                  <input type="time" class="form-control" id="c-atd" value="${meta.atd || ''}" ${dis}>
+                </div>
+              </div>
+            </div>
+            <div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Total Std. Pax (Total Siswa) <span class="req">*</span></label>
+                <input type="number" class="form-control" id="c-total-std" value="${meta.total_std || ''}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">Unwell Pax (Sakit)</label>
+                <input type="number" class="form-control" id="c-unwell" value="${meta.unwell || 0}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">No-show Pax (Absent/Alfa)</label>
+                <input type="number" class="form-control" id="c-no-show" value="${meta.no_show || 0}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px;">On-leave Pax (Izin)</label>
+                <input type="number" class="form-control" id="c-on-leave" value="${meta.on_leave || 0}" ${dis} min="0" placeholder="0" oninput="calcActualPax()">
+              </div>
+              <div class="form-group">
+                <label class="form-label" style="font-size:10px; color:var(--success);">Total Act. Pax (Total Hadir)</label>
+                <input type="number" class="form-control" id="c-total-act" value="${meta.total_act || 0}" disabled style="background:rgba(16,185,129,0.05); color:var(--success); border-color:var(--success-border);" placeholder="0">
+              </div>
+              <div style="display:flex; gap:12px;">
+                <div class="form-group" style="flex:1;">
+                  <label class="form-label" style="font-size:10px;">STA (Class End)</label>
+                  <input type="time" class="form-control" id="c-sta" value="${meta.sta || ''}" ${dis}>
+                </div>
+                <div class="form-group" style="flex:1;">
+                  <label class="form-label" style="font-size:10px;">ATA (Actual End)</label>
+                  <input type="time" class="form-control" id="c-ata" value="${meta.ata || ''}" ${dis}>
+                </div>
+              </div>
+            </div>
+          </div>
+          <h4 style="color:var(--gold-light); font-size:13px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em; border-bottom:1px solid rgba(255,255,255,0.08); padding-bottom:6px; margin-bottom:14px; text-align:left;">
+            Classroom &amp; Students Checklist
+          </h4>
+          <div style="display:flex; flex-direction:column; background:rgba(0,0,0,0.2); border:1px solid var(--border-sm); border-radius:var(--r-md); padding:0 14px;">
+            ${rowsHtml}
+          </div>
         </div>
 
       </div>
       <div class="modal-footer" style="display:flex; justify-content:space-between; width:100%;">
         <div>
-          ${isSaved && !isClosed ? `
-            <button class="btn btn-danger" onclick="closeClass('${catId}', '${savedLog.id}')">🔒 Close Class</button>
+          ${isSaved && !isClosed && !isNoDosen ? `
+            <button class="btn btn-danger" onclick="closeClass('${catId}', '${savedLog?.id}')">🔒 Close Class</button>
           ` : ''}
         </div>
         <div style="display:flex; gap:12px;">
           <button class="btn btn-ghost" onclick="closeModal()">Tutup</button>
           ${isSaved 
-            ? (!isClosed || App.role === 'admin' ? `<button class="btn btn-primary" onclick="updateClassChecklist('${catId}', '${savedLog.id}', false, ${isClosed})">💾 Update Data Kelas</button>` : '') 
-            : `<button class="btn btn-gold" onclick="saveClassChecklistDraft('${catId}')">💾 Simpan Draf Checklist</button>`
+            ? (!isClosed || App.role === 'admin' ? `<button class="btn btn-primary" onclick="updateClassChecklist('${catId}', '${savedLog?.id}', false, ${isClosed})">💾 Update Data</button>` : '') 
+            : `<button class="btn btn-gold" onclick="saveClassChecklistDraft('${catId}')">💾 ${isNoDosen ? 'Simpan Laporan' : 'Simpan Draf Checklist'}</button>`
           }
         </div>
       </div>
     </div>`;
 
   openModal(modalHtml);
-  calcActualPax(); // Auto calculate initial Total Act Pax
+  if (!isNoDosen) calcActualPax();
+}
+
+function toggleNoDosen() {
+  const toggle = document.getElementById('toggle-no-dosen');
+  const isChecked = toggle?.checked;
+  
+  const sectionNormal = document.getElementById('section-normal-checklist');
+  const sectionND     = document.getElementById('section-no-dosen');
+  const banner        = document.querySelector('.nd-toggle-banner');
+  const titleEl       = document.getElementById('nd-toggle-title');
+  const descEl        = document.getElementById('nd-toggle-desc');
+  
+  if (sectionNormal) sectionNormal.style.display = isChecked ? 'none' : 'block';
+  if (sectionND)     sectionND.style.display     = isChecked ? 'block' : 'none';
+  if (banner)        banner.classList.toggle('nd-active', isChecked);
+  if (titleEl) {
+    titleEl.innerHTML = isChecked ? '⚠️ Dosen Tidak Hadir' : '✅ Dosen Hadir (Normal)';
+    titleEl.style.color = isChecked ? 'var(--warning)' : 'var(--text-primary)';
+  }
+  if (descEl) {
+    descEl.textContent = isChecked
+      ? 'Mode aktivitas manual staf — tanpa checklist kelas.'
+      : 'Aktifkan jika dosen tidak hadir / berhalangan pada jam ini.';
+  }
+
+  // Update footer save button label
+  const saveBtn = document.querySelector('.modal-footer .btn-gold');
+  if (saveBtn) saveBtn.textContent = isChecked ? '💾 Simpan Laporan' : '💾 Simpan Draf Checklist';
 }
 
 function calcActualPax() {
@@ -3044,6 +3214,40 @@ function saveClassChecklistDraft(catId) {
   const subject = qs('#c-subject')?.value?.trim();
   const room = qs('#c-room')?.value;
   const totalStdVal = qs('#c-total-std')?.value;
+
+  // === Handle no-dosen mode ===
+  const noDosen = document.getElementById('toggle-no-dosen')?.checked || false;
+  if (noDosen) {
+    const ndSubject  = qs('#nd-subject')?.value?.trim();
+    const ndAlasan   = qs('#nd-alasan')?.value;
+    const ndAktivitas = qs('#nd-aktivitas')?.value?.trim();
+    const ndCatatan  = qs('#nd-catatan')?.value?.trim();
+    const ndNamaDosen = qs('#nd-nama-dosen')?.value?.trim();
+
+    if (!ndSubject)  { toast('Mata kuliah harus diisi', 'warning'); return; }
+    if (!ndAlasan)   { toast('Pilih alasan ketidakhadiran dosen', 'warning'); return; }
+    if (!ndAktivitas){ toast('Aktivitas staf harus diisi', 'warning'); return; }
+
+    const draftData = {
+      no_dosen: true,
+      subject_no_dosen: ndSubject,
+      nama_dosen_absen: ndNamaDosen || '',
+      alasan_no_dosen: ndAlasan,
+      aktivitas_staff: ndAktivitas,
+      catatan: ndCatatan || '',
+      recorded_at: new Date().toISOString(),
+      recorded_by_id: App.user?.id,
+      recorded_by_nama: App.user?.nama
+    };
+
+    App.draftLogs[catId] = JSON.stringify(draftData);
+    toast('✅ Laporan aktivitas (tanpa dosen) berhasil disimpan!', 'success');
+    closeModal();
+    updateDynamicForm(catId);
+    refreshCatChips();
+    return;
+  }
+  // === End no-dosen handling ===
 
   if (!pic) { toast('Dosen (P.I.C) harus diisi', 'warning'); return; }
   if (!subject) { toast('Subject / Mata Kuliah harus diisi', 'warning'); return; }
@@ -3108,6 +3312,40 @@ async function updateClassChecklist(catId, logId, isCloseAction = false, current
   const subject = qs('#c-subject')?.value?.trim();
   const room = qs('#c-room')?.value;
   const totalStdVal = qs('#c-total-std')?.value;
+
+  // === Handle no-dosen mode ===
+  const noDosen = document.getElementById('toggle-no-dosen')?.checked || false;
+  if (noDosen) {
+    const ndSubject   = qs('#nd-subject')?.value?.trim();
+    const ndAlasan    = qs('#nd-alasan')?.value;
+    const ndAktivitas = qs('#nd-aktivitas')?.value?.trim();
+    const ndCatatan   = qs('#nd-catatan')?.value?.trim();
+    const ndNamaDosen = qs('#nd-nama-dosen')?.value?.trim();
+
+    if (!ndSubject)   { toast('Mata kuliah harus diisi', 'warning'); return; }
+    if (!ndAlasan)    { toast('Pilih alasan ketidakhadiran dosen', 'warning'); return; }
+    if (!ndAktivitas) { toast('Aktivitas staf harus diisi', 'warning'); return; }
+
+    const updatedData = {
+      no_dosen: true,
+      subject_no_dosen: ndSubject,
+      nama_dosen_absen: ndNamaDosen || '',
+      alasan_no_dosen: ndAlasan,
+      aktivitas_staff: ndAktivitas,
+      catatan: ndCatatan || '',
+      updated_at: new Date().toISOString(),
+      recorded_by_id: App.user?.id,
+      recorded_by_nama: App.user?.nama
+    };
+
+    await DB.updateLog(logId, { deskripsi: JSON.stringify(updatedData) });
+    toast('✅ Laporan aktivitas berhasil diperbarui!', 'success');
+    closeModal();
+    if (App.role === 'admin') await renderAdminView(App.tab);
+    else await renderStaffView(App.tab);
+    return;
+  }
+  // === End no-dosen handling ===
 
   if (!pic) { toast('Dosen (P.I.C) harus diisi', 'warning'); return; }
   if (!subject) { toast('Subject / Mata Kuliah harus diisi', 'warning'); return; }
