@@ -578,12 +578,33 @@ function buildTracker() {
         <p class="page-sub" style="margin:0;">Catat aktivitas per jam · ${formatDateLong(today)}</p>
         ${(() => {
           const sc = App.currentShift;
-          if (!sc || !sc.shift) return '';
-          const cfg = SHIFT_CONFIG[sc.shift];
-          return `<span class="shift-badge ${cfg.colorClass}${sc.isActive ? ' shift-active' : ' shift-inactive'}">
-            ${cfg.emoji} ${cfg.label} &nbsp;·&nbsp; ${cfg.jam_mulai}–${cfg.jam_selesai}
-            ${sc.isActive ? '<span class="shift-dot-live"></span>' : '<span class="shift-off-label">Di luar jam</span>'}
-          </span>`;
+          // 1. Jika ada shift HARI INI
+          if (sc && sc.shift) {
+            const cfg = SHIFT_CONFIG[sc.shift];
+            return `<span class="shift-badge ${cfg.colorClass}${sc.isActive ? ' shift-active' : ' shift-inactive'}">
+              ${cfg.emoji} ${cfg.label} &nbsp;·&nbsp; ${cfg.jam_mulai}–${cfg.jam_selesai}
+              ${sc.isActive ? '<span class="shift-dot-live"></span>' : '<span class="shift-off-label">Di luar jam</span>'}
+            </span>`;
+          }
+          
+          // 2. Jika tidak ada shift hari ini, cek apakah ada shift BESOK
+          const tmr = new Date();
+          tmr.setDate(tmr.getDate() + 1);
+          // Hati-hati zona waktu saat toISOString
+          const y = tmr.getFullYear();
+          const m = String(tmr.getMonth() + 1).padStart(2, '0');
+          const d = String(tmr.getDate()).padStart(2, '0');
+          const besokIso = `${y}-${m}-${d}`;
+          
+          const shiftBesok = DB.getShiftStaffByDate(App.user.id, besokIso);
+          if (shiftBesok) {
+            const cfg = SHIFT_CONFIG[shiftBesok];
+            return `<span class="shift-badge" style="background: rgba(255,255,255,0.03); color: var(--text-muted); border: 1px dashed var(--border-xs);">
+              📅 Jadwal Anda Besok: <strong>${cfg.emoji} ${cfg.label}</strong>
+            </span>`;
+          }
+          
+          return '';
         })()}
       </div>
     </div>
