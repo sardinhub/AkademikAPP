@@ -247,6 +247,10 @@ const CHECKLIST_ITEMS = [
 // DATABASE OBJECT
 // ===========================
 const DB = {
+  // Sync state
+  _lastSyncTime: 0,
+  _isSyncing: false,
+
   // Synchronous cache for UI rendering
   cache: {
     staff: [],
@@ -303,12 +307,22 @@ const DB = {
   },
 
   /** Fetch fresh data from Supabase and sync local storage */
-  async syncFromCloud() {
+  async syncFromCloud(force = false) {
     if (!supabaseClient) {
       console.log("Supabase belum dikonfigurasi. Menggunakan data offline LocalStorage.");
       this.init();
       return false; // Not connected
     }
+
+    // THROTTLE: Mencegah sync berlebihan yang membuat aplikasi lambat
+    // Maksimal 1x request per 30 detik, kecuali dipaksa (force = true)
+    const now = Date.now();
+    if (!force && (now - this._lastSyncTime < 30000)) {
+      return true; 
+    }
+    if (this._isSyncing) return true; 
+    
+    this._isSyncing = true;
     try {
       // 1. Sync Data Staf (local -> cloud)
       console.log('[SYNC] Step 1: tia_master_staff...');
@@ -718,12 +732,16 @@ const DB = {
       localStorage.setItem(DB_KEYS.SHIFT,           JSON.stringify(this.cache.shift));
 
       console.log("Database Supabase berhasil disinkronisasi!");
+      this._lastSyncTime = Date.now();
+      this._isSyncing = false;
       return true; // Successfully synced
     } catch (err) {
       console.error("[SYNC] ❌ SYNC GAGAL TOTAL:", err?.message || err?.code || err);
       console.error("[SYNC] Detail:", JSON.stringify(err, null, 2));
       this._lastSyncError = err?.message || err?.code || 'Unknown error';
       this.init();
+      this._lastSyncTime = Date.now(); // Mencegah spam error
+      this._isSyncing = false;
       return false;
     }
   },
