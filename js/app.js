@@ -4592,7 +4592,11 @@ function buildJadwalShiftView() {
   const weekDays = Array.from({ length: 7 }, (_, i) => {
     const d = new Date(today + 'T00:00:00');
     d.setDate(d.getDate() + i);
-    const iso = d.toISOString().slice(0, 10);
+    // Hindari d.toISOString() karena akan mundur ke hari sebelumnya akibat UTC offset
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    const iso = `${y}-${m}-${day}`;
     const rec = DB.getShiftByTanggal(iso);
     const hasPagi  = rec?.staff_pagi?.length  > 0;
     const hasSiang = rec?.staff_siang?.length > 0;
