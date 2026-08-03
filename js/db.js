@@ -102,8 +102,8 @@
 // ==========================================
 // PENTING: Isi URL dan Anon Key Supabase Anda di bawah ini agar online.
 // Jika dikosongkan, aplikasi otomatis fallback ke LocalStorage (Offline mode).
-const SUPABASE_URL = 'https://dgxoiqqaxdnvmdphzfxt.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRneG9pcXFheGRudm1kcGh6Znh0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODAzNTkxMTcsImV4cCI6MjA5NTkzNTExN30.8lSOD2axFyqbuw_m4b0xTE3SihzBGEHnyCEJu76gOT0';
+const SUPABASE_URL = 'https://zdopgyaxorlmciupampm.supabase.co';
+const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inpkb3BneWF4b3JsbWNpdXBhbXBtIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODU3NDg5NjQsImV4cCI6MjEwMTMyNDk2NH0.RZSeqAuT_iTnptUug5Qhepzwy8cD-f-7ByVYSGan_TE';
 
 let supabaseClient = null;
 if (typeof supabase !== 'undefined' && SUPABASE_URL && SUPABASE_ANON_KEY) {

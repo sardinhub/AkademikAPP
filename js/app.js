@@ -1356,6 +1356,9 @@ function buildOverview() {
         <button class="btn btn-warning btn-sm" onclick="downloadLocalBackup()" style="font-size:12px; font-weight:bold;">
           💾 Download Backup Data
         </button>
+        <button class="btn btn-primary btn-sm" onclick="migrateToNewSupabase()" style="font-size:12px; font-weight:bold; background:var(--primary);">
+          🚀 Migrasi ke Supabase Baru
+        </button>
       </div>
     </div>
 
@@ -4761,8 +4764,30 @@ async function removeShiftMember(tanggal, shiftKey, staffId) {
 }
 
 // ============================================================
-//  FITUR 6 — EXPORT LAPORAN & BACKUP
+//  FITUR 6 — EXPORT LAPORAN & BACKUP & MIGRATION
 // ============================================================
+async function migrateToNewSupabase() {
+  if (!confirm('Apakah Anda yakin ingin mengunggah semua data dari browser ini ke Supabase yang baru? Pastikan Anda sudah menjalankan SQL Schema di Supabase baru.')) return;
+  
+  toast('Memulai proses migrasi...', 'info');
+  try {
+    // Force unsynced flag for all items in all tables in cache
+    Object.keys(DB.cache).forEach(key => {
+      if (Array.isArray(DB.cache[key])) {
+        DB.cache[key].forEach(item => { item._unsynced = true; });
+        localStorage.setItem(key, JSON.stringify(DB.cache[key]));
+      }
+    });
+    
+    // Trigger sync
+    await DB.syncFromCloud();
+    toast('✅ Migrasi Data Selesai! Semua data telah diunggah ke Supabase baru.', 'success');
+  } catch (err) {
+    console.error('Migrasi error:', err);
+    toast('Gagal melakukan migrasi. Periksa console untuk detailnya.', 'danger');
+  }
+}
+
 function downloadLocalBackup() {
   const backupData = JSON.stringify(DB.cache, null, 2);
   const blob = new Blob([backupData], { type: 'application/json' });
