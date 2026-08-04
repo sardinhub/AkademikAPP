@@ -363,6 +363,11 @@ async function doLogin() {
     App.user = user;
     // Deteksi shift staf saat login
     App.currentShift = DB.detectCurrentShift(user.id);
+
+    const btn = document.getElementById('btn-masuk');
+    if (btn) btn.innerHTML = '⏳ Menghubungkan...';
+    await DB.syncFromCloud(true);
+
     await renderStaffView('tracker');
   } else {
     const passEl = document.getElementById('txt-password');
@@ -375,6 +380,11 @@ async function doLogin() {
 
     App.role = 'admin';
     App.user = { id: 'ADMIN', nama: 'Manager Akademik', jabatan: 'Administrator', status: 'Aktif' };
+
+    const btn = document.getElementById('btn-masuk');
+    if (btn) btn.innerHTML = '⏳ Menghubungkan...';
+    await DB.syncFromCloud(true);
+
     await renderAdminView('overview');
   }
 }
@@ -388,7 +398,7 @@ async function renderStaffView(tab = 'tracker') {
   if (!isSabtu && tab === 'absen-sabtu') tab = 'absen-pagi';
 
   App.tab = tab;
-  await DB.syncFromCloud();
+  DB.syncFromCloud().catch(console.error);
   const todayLogs = DB.getStaffLogsToday(App.user.id);
 
   // Cek kelas mentoring dan siswa staf ini
@@ -1189,7 +1199,7 @@ function refreshRoomBadges() {
 // ============================================================
 async function renderAdminView(tab = 'overview') {
   App.tab = tab;
-  await DB.syncFromCloud();
+  DB.syncFromCloud().catch(console.error);
 
   const tabs = [
     { id: 'overview',        emoji: '📊', label: 'Dashboard'         },
