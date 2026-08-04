@@ -1263,6 +1263,10 @@ const DB = {
   async setSiswaKelas(kelasId, nimArray) {
     // Hapus semua siswa lama di kelas ini
     this.cache.siswaKelas = this.cache.siswaKelas.filter(a => a.kelas_id !== kelasId);
+    
+    // Sistem Rolling: Hapus siswa yang dipilih (nimArray) dari kelas manapun agar tidak ada duplikasi kelas
+    this.cache.siswaKelas = this.cache.siswaKelas.filter(a => !nimArray.includes(a.siswa_nim));
+
     // Buat assign baru
     const newAssigns = nimArray.map(nim => ({
       id:        `SZA_${kelasId}_${nim}`,
@@ -1271,10 +1275,14 @@ const DB = {
     }));
     this.cache.siswaKelas.push(...newAssigns);
     localStorage.setItem(DB_KEYS.SISWA_KELAS, JSON.stringify(this.cache.siswaKelas));
+    
     if (supabaseClient) {
       try {
         await supabaseClient.from('tia_siswa_kelas_assign').delete().eq('kelas_id', kelasId);
-        if (newAssigns.length > 0) {
+        if (nimArray.length > 0) {
+          // Hapus dari kelas lain di DB untuk memastikan rolling
+          await supabaseClient.from('tia_siswa_kelas_assign').delete().in('siswa_nim', nimArray);
+          // Insert yang baru
           await supabaseClient.from('tia_siswa_kelas_assign').insert(newAssigns);
         }
       } catch (err) { console.error('Cloud set siswa kelas failed:', err); }
