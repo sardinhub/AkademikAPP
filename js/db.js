@@ -184,8 +184,17 @@ const TIME_SLOTS = [
   '06:15',
   '07:30',
   '09:30',
+  '10:00',
+  '11:00',
+  '12:00',
   '12:45',
+  '13:00',
+  '14:00',
+  '15:00',
   '16:00',
+  '17:00',
+  '18:00',
+  '19:00',
   '20:00',
   '22:00'
 ];
@@ -221,7 +230,10 @@ const ACTIVITY_CATS = [
   
   // Pukul 22:00
   { id: 'absen-asrama',       name: 'Absen Asrama',              icon: '🏢' },
-  { id: 'catatan-asrama',     name: 'Catatan Absen Asrama',      icon: '📋' }
+  { id: 'catatan-asrama',     name: 'Catatan Absen Asrama',      icon: '📋' },
+  
+  // Aktivitas Harian Manual
+  { id: 'aktivitas-harian',   name: 'Aktivitas Hari ini',        icon: '📝' }
 ];
 
 /**

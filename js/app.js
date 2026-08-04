@@ -41,9 +41,18 @@ const SLOT_CATEGORIES = {
   '06:15': ['olahraga-pagi'],
   '07:30': ['kesiapan-1'],
   '09:30': ['kesiapan-2'],
+  '10:00': ['aktivitas-harian'],
+  '11:00': ['aktivitas-harian'],
+  '12:00': ['aktivitas-harian'],
   '12:45': ['kesiapan-3'],
-  '16:00': ['ekskul-sore', 'catatan-ekskul', 'kesiapan-sore-opt'],
-  '20:00': ['kehadiran-malam', 'materi-malam', 'kesiapan-malam', 'catatan-malam'],
+  '13:00': ['aktivitas-harian'],
+  '14:00': ['aktivitas-harian'],
+  '15:00': ['aktivitas-harian'],
+  '16:00': ['ekskul-sore', 'catatan-ekskul', 'kesiapan-sore-opt', 'aktivitas-harian'],
+  '17:00': ['aktivitas-harian'],
+  '18:00': ['aktivitas-harian'],
+  '19:00': ['aktivitas-harian'],
+  '20:00': ['kehadiran-malam', 'materi-malam', 'kesiapan-malam', 'catatan-malam', 'aktivitas-harian'],
   '22:00': ['absen-asrama', 'catatan-asrama']
 };
 
