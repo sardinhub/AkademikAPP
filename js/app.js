@@ -3251,6 +3251,23 @@ function openClassChecklistModal(catId, jamParam = null, staffIdParam = null) {
   if (!isNoDosen) calcActualPax();
 }
 
+function enableEditND() {
+  const fields = ['nd-subject', 'nd-nama-dosen', 'nd-alasan', 'nd-aktivitas', 'nd-catatan', 'toggle-no-dosen'];
+  fields.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.disabled = false;
+  });
+  
+  // Update toggle label style to indicate it's enabled
+  const toggleLabel = document.querySelector('.nd-toggle-label');
+  if (toggleLabel) toggleLabel.style.cursor = 'pointer';
+
+  const btnEdit = document.getElementById('btn-edit-nd');
+  const btnUpdate = document.getElementById('btn-update-nd');
+  if (btnEdit) btnEdit.style.display = 'none';
+  if (btnUpdate) btnUpdate.style.display = 'inline-block';
+}
+
 function toggleNoDosen() {
   const toggle = document.getElementById('toggle-no-dosen');
   const isChecked = toggle?.checked;
